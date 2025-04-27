@@ -1,4 +1,5 @@
-/* SPDX-License-Identifier: BSD-3-Clause */
+// Filename: dpdk_receiver.c
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
@@ -13,10 +14,12 @@
 #define NUM_MBUFS 8191
 #define MBUF_CACHE_SIZE 250
 #define BURST_SIZE 32
+#define CAPTURE_DURATION_SEC 30
 
 static volatile bool force_quit = false;
 static struct rte_mempool *mbuf_pool;
 static FILE *csv_file;
+static time_t start_time;
 
 static void signal_handler(int signum)
 {
@@ -80,12 +83,18 @@ int main(int argc, char *argv[])
         rte_exit(EXIT_FAILURE, "Failed to open CSV file\n");
     fprintf(csv_file, "Timestamp_us,Source MAC,Destination MAC\n");
 
+    start_time = time(NULL);
+
     while (!force_quit) {
         const uint16_t nb_rx = rte_eth_rx_burst(port_id, 0, mbufs, BURST_SIZE);
 
         for (int i = 0; i < nb_rx; i++) {
             log_packet(mbufs[i]);
             rte_pktmbuf_free(mbufs[i]);
+        }
+
+        if (time(NULL) - start_time >= CAPTURE_DURATION_SEC) {
+            force_quit = true;
         }
     }
 

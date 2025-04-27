@@ -90,11 +90,11 @@ int main(int argc, char *argv[]) {
     Sequencer sequencer;
 
     // Infinite services
-    sequencer.addService(post_rx,     0, 0, 5); // RX thread: infinite
-    sequencer.addService(post_detect, 0, 0, 5); // Detection thread: infinite
+    sequencer.addService(post_rx,     1, 0, 5); // RX thread: infinite
+    sequencer.addService(post_detect, 2, 0, 5); // Detection thread: infinite
 
     // Periodic services
-    sequencer.addService(post_led,    1, 40, 5);    // LED service: every 100ms
+    sequencer.addService(post_led,    3, 40, 5);    // LED service: every 100ms
     sequencer.addService(post_logger, 3, 30, 10);   // Logger service: every 1000ms
 
     // Start sequencer

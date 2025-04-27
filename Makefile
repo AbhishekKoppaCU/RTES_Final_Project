@@ -32,4 +32,4 @@ $(TARGET): $(OBJECTS)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(DPDK_LDLIBS) $(EXTRA_LDLIBS)
 
 clean:
-	rm -f $(TARGET) *.o packet_log.csv
+	rm -f $(TARGET) *.o packet_logger.csv

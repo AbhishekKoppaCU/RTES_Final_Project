@@ -153,6 +153,17 @@ void *intrusion_detection_thread_func(void *arg) {
     return NULL;
 }
 
+FILE *init_csv_file() {
+    FILE *csv_file = fopen("packet_logger.csv", "w");
+    if (!csv_file) {
+        perror("Failed to open CSV file for writing");
+        exit(EXIT_FAILURE);
+    }
+
+    fprintf(csv_file, "Timestamp,Source MAC,Destination MAC,Threat Status,Detect Delay,Log Delay\n");
+    fflush(csv_file);
+    return csv_file;
+}
 
 
 void *logger_thread_func(void *arg) {
@@ -166,6 +177,8 @@ void *logger_thread_func(void *arg) {
     printf("[LOGGER] Thread running on core %d\n", LOGGER_CORE_ID);
 
     uint64_t tsc_hz = rte_get_tsc_hz(); // Get TSC frequency once
+
+    FILE *csv_file = init_csv_file();
 
     // Initialize ncurses
     initscr();
@@ -221,13 +234,19 @@ void *logger_thread_func(void *arg) {
             history[history_count].log_delay_ms = log_delay_ms;
             history_count++;
 
+            // Write immediately to CSV
+            fprintf(csv_file, "%s,%s,%s,%s,%ldms,%ldms\n",
+                    timestamp, src_mac, dst_mac, result->threat_status,
+                    detect_delay_ms, log_delay_ms);
+            fflush(csv_file);
+
             rte_pktmbuf_free(result->mbuf);
             free(result);
         }
 
         // Draw history
         clear();
-        mvprintw(0, 0, "Timestamp              Source MAC           Destination MAC      Threat    DetectDelay  LogDelay");
+        mvprintw(0, 0, "Timestamp              SourceMAC           DestinationMAC      Threat    DetectDelay  LogDelay");
         for (int i = 0; i < history_count; i++) {
             if (strcmp(history[i].threat_status, "THREAT") == 0) {
                 attron(COLOR_PAIR(1));
@@ -235,7 +254,7 @@ void *logger_thread_func(void *arg) {
                 attron(COLOR_PAIR(2));
             }
 
-            mvprintw(i + 1, 0, "%s  %s -> %s      %s         %ldms         %ldms",
+            mvprintw(i + 1, 0, "%s  %s -> %s     %s         %ldms        %ldms",
                      history[i].timestamp,
                      history[i].src_mac,
                      history[i].dst_mac,
@@ -251,7 +270,7 @@ void *logger_thread_func(void *arg) {
         usleep(50000); // Small sleep to avoid 100% CPU
     }
 
-    // Cleanup ncurses
+    fclose(csv_file);
     endwin();
     return NULL;
 }

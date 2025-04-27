@@ -33,6 +33,9 @@ extern uint64_t total_rx;
 // Semaphores for LED and Logger
 extern sem_t led_sem;
 extern sem_t logger_sem;
+extern sem_t rx_sem;
+extern sem_t detect_sem;
+
 
 // Shared threat flag
 extern volatile bool threat_detected;
@@ -42,6 +45,7 @@ void *rx_thread_func(void *arg);
 void *intrusion_detection_thread_func(void *arg);
 void *logger_thread_func(void *arg);
 void *led_thread_func(void *arg);
+void init_all_sems();
 
 
 // Wrapper APIs for LED/Logger threads

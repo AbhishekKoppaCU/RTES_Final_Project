@@ -44,6 +44,9 @@ uint64_t total_rx = 0;
 
 sem_t led_sem;
 sem_t logger_sem;
+sem_t rx_sem;
+sem_t detect_sem;
+
 
 volatile bool threat_detected = false;
 
@@ -305,9 +308,15 @@ void *led_thread_func(void *arg) {
     return NULL;
 }
 
-void init_logger_led_threads(pthread_t *log_thread, pthread_t *led_thread) {
+void init_all_sems() {
+    sem_init(&rx_sem, 0, 0);
+    sem_init(&detect_sem, 0, 0);
     sem_init(&led_sem, 0, 0);
     sem_init(&logger_sem, 0, 0);
+}
+
+
+void init_logger_led_threads(pthread_t *log_thread, pthread_t *led_thread) {
 
     pthread_create(log_thread, NULL, logger_thread_func, NULL);
     pthread_create(led_thread, NULL, led_thread_func, NULL);

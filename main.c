@@ -68,6 +68,7 @@ static void set_realtime_priority(int priority) {
 }
 
 void *rx_thread_func(void *arg) {
+    (void)arg;
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
     CPU_SET(RX_CORE_ID, &cpuset);
@@ -90,6 +91,7 @@ void *rx_thread_func(void *arg) {
 }
 
 void *intrusion_detection_thread_func(void *arg) {
+    (void)arg;
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
     CPU_SET(DETECTION_CORE_ID, &cpuset);
@@ -124,6 +126,7 @@ void *intrusion_detection_thread_func(void *arg) {
 }
 
 void *logger_thread_func(void *arg) {
+    (void)arg;
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
     CPU_SET(LOGGER_CORE_ID, &cpuset);
@@ -162,6 +165,7 @@ void *logger_thread_func(void *arg) {
 
 
 void *led_thread_func(void *arg) {
+    (void)arg;
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
     CPU_SET(LOGGER_CORE_ID, &cpuset);

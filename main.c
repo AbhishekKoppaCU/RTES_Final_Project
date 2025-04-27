@@ -227,7 +227,7 @@ void *logger_thread_func(void *arg) {
 
         // Draw history
         clear();
-        mvprintw(0, 0, "Timestamp              Source MAC           Destination MAC      Threat    Detect Delay  Log Delay");
+        mvprintw(0, 0, "Timestamp              Source MAC           Destination MAC      Threat    DetectDelay  LogDelay");
         for (int i = 0; i < history_count; i++) {
             if (strcmp(history[i].threat_status, "THREAT") == 0) {
                 attron(COLOR_PAIR(1));
@@ -235,7 +235,7 @@ void *logger_thread_func(void *arg) {
                 attron(COLOR_PAIR(2));
             }
 
-            mvprintw(i + 1, 0, "%s  %s -> %s  %s   %ldms   %ldms",
+            mvprintw(i + 1, 0, "%s  %s -> %s      %s         %ldms         %ldms",
                      history[i].timestamp,
                      history[i].src_mac,
                      history[i].dst_mac,

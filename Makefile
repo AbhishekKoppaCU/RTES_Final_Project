@@ -14,6 +14,9 @@ OBJECTS = main.o Sequencer.o
 
 TARGET = packet_logger
 
+# Extra libraries
+EXTRA_LDLIBS = -lpthread -lncurses
+
 all: $(TARGET)
 
 # Build C object file
@@ -26,7 +29,7 @@ Sequencer.o: Sequencer.cpp
 
 # Link final executable
 $(TARGET): $(OBJECTS)
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(DPDK_LDLIBS) -lpthread
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(DPDK_LDLIBS) $(EXTRA_LDLIBS)
 
 clean:
 	rm -f $(TARGET) *.o packet_log.csv

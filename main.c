@@ -10,10 +10,13 @@
 #include <string.h>
 #include <unistd.h>
 #include <semaphore.h>
+#include <ncurses.h>
 
 #include <rte_eal.h>
+#include <rte_ether.h>
 #include <rte_ethdev.h>
 #include <rte_mbuf.h>
+#include <rte_cycles.h>
 #include <rte_ring.h>
 
 #include "packet_logger.h"
@@ -28,6 +31,8 @@
 #define RX_CORE_ID 1
 #define DETECTION_CORE_ID 2
 #define LOGGER_CORE_ID 3
+
+#define MAX_HISTORY 50
 
 volatile bool force_quit = false;
 struct rte_mempool *mbuf_pool;
@@ -45,6 +50,17 @@ volatile bool threat_detected = false;
 struct detection_result {
     struct rte_mbuf *mbuf;
     char threat_status[16]; // "SAFE" or "THREAT"
+    uint64_t rx_tsc;
+    uint64_t detect_tsc;
+};
+
+struct log_entry {
+    char timestamp[32];
+    char src_mac[32];
+    char dst_mac[32];
+    char threat_status[16];
+    long detect_delay_ms;
+    long log_delay_ms;
 };
 
 void signal_handler(int signum) {
@@ -82,13 +98,26 @@ void *rx_thread_func(void *arg) {
         const uint16_t nb_rx = rte_eth_rx_burst(port_id, 0, mbufs, BURST_SIZE);
         total_rx += nb_rx;
         for (int i = 0; i < nb_rx; i++) {
-            if (rte_ring_enqueue(packet_ring, mbufs[i]) < 0) {
+            struct detection_result *result = malloc(sizeof(struct detection_result));
+            if (!result) {
                 rte_pktmbuf_free(mbufs[i]);
+                continue;
+            }
+
+            result->mbuf = mbufs[i];
+            strncpy(result->threat_status, "UNKNOWN", sizeof(result->threat_status));
+            result->rx_tsc = rte_get_tsc_cycles(); // Save RX time
+
+            if (rte_ring_enqueue(packet_ring, result) < 0) {
+                rte_pktmbuf_free(mbufs[i]);
+                free(result);
             }
         }
     }
     return NULL;
 }
+
+
 
 void *intrusion_detection_thread_func(void *arg) {
     (void)arg;
@@ -101,12 +130,9 @@ void *intrusion_detection_thread_func(void *arg) {
     printf("[DETECTION] Thread running on core %d\n", DETECTION_CORE_ID);
 
     while (!force_quit) {
-        struct rte_mbuf *mbuf = NULL;
-        if (rte_ring_dequeue(packet_ring, (void **)&mbuf) == 0 && mbuf != NULL) {
-            struct detection_result *result = malloc(sizeof(struct detection_result));
-            result->mbuf = mbuf;
-
-            struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
+        struct detection_result *result = NULL;
+        if (rte_ring_dequeue(packet_ring, (void **)&result) == 0 && result != NULL) {
+            struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(result->mbuf, struct rte_ether_hdr *);
             void *l3_hdr = (char *)eth_hdr + sizeof(struct rte_ether_hdr);
             uint8_t ip_proto = *((uint8_t *)l3_hdr + 9);
             if (ip_proto == 1) {
@@ -116,14 +142,18 @@ void *intrusion_detection_thread_func(void *arg) {
                 strncpy(result->threat_status, "SAFE", sizeof(result->threat_status));
             }
 
+            result->detect_tsc = rte_get_tsc_cycles(); // Save detection completed time here
+
             if (rte_ring_enqueue(detected_ring, result) < 0) {
-                rte_pktmbuf_free(mbuf);
+                rte_pktmbuf_free(result->mbuf);
                 free(result);
             }
         }
     }
     return NULL;
 }
+
+
 
 void *logger_thread_func(void *arg) {
     (void)arg;
@@ -134,6 +164,22 @@ void *logger_thread_func(void *arg) {
     set_realtime_priority(30);
 
     printf("[LOGGER] Thread running on core %d\n", LOGGER_CORE_ID);
+
+    uint64_t tsc_hz = rte_get_tsc_hz(); // Get TSC frequency once
+
+    // Initialize ncurses
+    initscr();
+    cbreak();
+    noecho();
+    curs_set(FALSE);
+    nodelay(stdscr, TRUE); // Non-blocking getch
+    start_color();
+
+    init_pair(1, COLOR_RED, COLOR_BLACK);   // Red for threats
+    init_pair(2, COLOR_GREEN, COLOR_BLACK); // Green for safe
+
+    struct log_entry history[MAX_HISTORY];
+    int history_count = 0;
 
     while (!force_quit) {
         sem_wait(&logger_sem);
@@ -148,20 +194,68 @@ void *logger_thread_func(void *arg) {
             rte_ether_format_addr(src_mac, sizeof(src_mac), &eth_hdr->src_addr);
             rte_ether_format_addr(dst_mac, sizeof(dst_mac), &eth_hdr->dst_addr);
 
-            time_t now = time(NULL);
-            struct tm *tm_info = localtime(&now);
+            time_t now_sec = time(NULL);
+            struct tm *tm_info = localtime(&now_sec);
             char timestamp[32];
             strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", tm_info);
 
-            fprintf(csv_file, "%s,%s,%s,%s\n", timestamp, src_mac, dst_mac, result->threat_status);
-            fflush(csv_file);
+            uint64_t now_tsc = rte_get_tsc_cycles();
+
+            uint64_t detect_delay_cycles = result->detect_tsc - result->rx_tsc;
+            uint64_t log_delay_cycles = now_tsc - result->detect_tsc;
+
+            long detect_delay_ms = (detect_delay_cycles * 1000) / tsc_hz;
+            long log_delay_ms = (log_delay_cycles * 1000) / tsc_hz;
+
+            // Save to history
+            if (history_count >= MAX_HISTORY) {
+                memmove(&history[0], &history[1], sizeof(struct log_entry) * (MAX_HISTORY - 1));
+                history_count = MAX_HISTORY - 1;
+            }
+
+            strncpy(history[history_count].timestamp, timestamp, sizeof(timestamp));
+            strncpy(history[history_count].src_mac, src_mac, sizeof(src_mac));
+            strncpy(history[history_count].dst_mac, dst_mac, sizeof(dst_mac));
+            strncpy(history[history_count].threat_status, result->threat_status, sizeof(result->threat_status));
+            history[history_count].detect_delay_ms = detect_delay_ms;
+            history[history_count].log_delay_ms = log_delay_ms;
+            history_count++;
 
             rte_pktmbuf_free(result->mbuf);
             free(result);
         }
+
+        // Draw history
+        clear();
+        mvprintw(0, 0, "Timestamp              Source MAC           Destination MAC      Threat    Detect Delay  Log Delay");
+        for (int i = 0; i < history_count; i++) {
+            if (strcmp(history[i].threat_status, "THREAT") == 0) {
+                attron(COLOR_PAIR(1));
+            } else {
+                attron(COLOR_PAIR(2));
+            }
+
+            mvprintw(i + 1, 0, "%s  %s -> %s  %s   %ldms   %ldms",
+                     history[i].timestamp,
+                     history[i].src_mac,
+                     history[i].dst_mac,
+                     history[i].threat_status,
+                     history[i].detect_delay_ms,
+                     history[i].log_delay_ms);
+
+            attroff(COLOR_PAIR(1));
+            attroff(COLOR_PAIR(2));
+        }
+
+        refresh();
+        usleep(50000); // Small sleep to avoid 100% CPU
     }
+
+    // Cleanup ncurses
+    endwin();
     return NULL;
 }
+
 
 
 void *led_thread_func(void *arg) {

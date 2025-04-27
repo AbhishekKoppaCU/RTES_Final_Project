@@ -258,7 +258,7 @@ private:
 
     static void _timerHandler(int sig, siginfo_t* si, void* uc)
     {
-
+    (void)sig; (void)si; (void)uc;
         static int tick = 0;
         tick += 5;
 

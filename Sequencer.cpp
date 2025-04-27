@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Configure port
-    struct rte_eth_conf port_conf = {0};
+    struct rte_eth_conf port_conf = {};
     if (rte_eth_dev_configure(port_id, 1, 0, &port_conf) < 0 ||
         rte_eth_rx_queue_setup(port_id, 0, RX_RING_SIZE, rte_eth_dev_socket_id(port_id), NULL, mbuf_pool) < 0 ||
         rte_eth_dev_start(port_id) < 0) {
@@ -80,8 +80,8 @@ int main(int argc, char *argv[]) {
 
     // Add LED and Logger to sequencer
     Sequencer sequencer;
-    sequencer.addService(post_led,    1, 40, 100);    // LED service: 100ms
-    sequencer.addService(post_logger, 3, 30, 1000);   // Logger service: 1000ms
+    sequencer.addService(post_led,    1, 40, 5);    // LED service: 100ms
+    sequencer.addService(post_logger, 3, 30, 10);   // Logger service: 1000ms
 
     // Start sequencer timer
     sequencer.startServices();

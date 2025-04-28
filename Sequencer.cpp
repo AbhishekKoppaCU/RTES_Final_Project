@@ -118,5 +118,8 @@ int main(int argc, char *argv[]) {
 
     syslog(LOG_INFO, "Shutdown complete. Total packets received: %lu", total_rx);
     closelog();
+    
+    printf("Running WCET plotting script...\n");
+    system("python3 plot_wcet.py");
     return 0;
 }

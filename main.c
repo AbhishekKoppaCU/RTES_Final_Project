@@ -243,19 +243,17 @@ void led_service() {
     if (!initialized) {
         syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
         initialized = true;
-        //printf("[LED] LED service initialized\n");
+        printf("[LED] LED service initialized\n");
     }
 
-    if (!threat_detected) {
+   if (!threat_detected) {
         blink_counter++;
         if (blink_counter >= 10) {
             blink_counter = 0;
-            // Blink slowly (SAFE mode)
-            //printf("[LED] SAFE blinking\n");
-        }
+            syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
     } else {
-        // Blink rapidly (THREAT detected)
-        //printf("[LED] THREAT blinking\n");
+        syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
     }
+}
 }
 

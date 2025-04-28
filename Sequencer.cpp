@@ -94,10 +94,10 @@ while (!force_quit) {
 
     struct rte_eth_stats stats;
     if (rte_eth_stats_get(port_id, &stats) == 0) {
-        syslog(INFINITE_PERIOD,"Packets RX: %" PRIu64 "\n", stats.ipackets);
-        syslog(INFINITE_PERIOD,"Packets dropped RX: %" PRIu64 "\n", stats.imissed);
+        syslog(LOG_INFO,"Packets RX: %" PRIu64 "\n", stats.ipackets);
+        syslog(LOG_INFO,"Packets dropped RX: %" PRIu64 "\n", stats.imissed);
     } else {
-        syslog(INFINITE_PERIOD,"Failed to get Ethernet stats!\n");
+        syslog(LOG_INFO,"Failed to get Ethernet stats!\n");
     }
 
     fclose(csv_file);

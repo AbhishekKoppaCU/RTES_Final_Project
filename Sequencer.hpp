@@ -63,10 +63,13 @@ public:
         sem_init(&_sem, 0, 0);
         _service = std::jthread(&Service::_provideService, this);
         _csvFile = fopen((_serviceName + "_exec_times.csv").c_str(), "w");
+        if (_period != INFINITE_PERIOD) {   // Only for periodic services
+        _csvFile = fopen((_serviceName + "_exec_times.csv").c_str(), "w");
         if (_csvFile) {
             fprintf(_csvFile, "ExecutionTime_us\n");
             fflush(_csvFile);
         }
+    }
     }
 
     void stop(){
@@ -97,6 +100,7 @@ public:
     
 private:
     std::function<void(void)> _doService;
+    std::string _serviceName;
     std::jthread _service;
     std::atomic<bool> _running;
     sem_t _sem;
@@ -104,7 +108,6 @@ private:
     uint8_t _affinity;
     uint8_t _priority;
     uint32_t _period;
-    std::string _serviceName;
     FILE *_csvFile = nullptr;
 
     std::queue<struct timespec> _releaseTimes;
@@ -177,9 +180,10 @@ private:
 
 
     void printStatistics() const {
-  if (_period == INFINITE_PERIOD)
-        return;  // Skip printing statistics for infinite services
-        syslog(LOG_INFO,"\n=== Service: %-10s (Period: %u ms) Statistics ===\n", _serviceName.c_str(), _period);
+  if (_period == INFINITE_PERIOD){
+        return;
+        }  // Skip printing statistics for infinite services
+        syslog(LOG_INFO,"\n=== Service: %-10s (Period: %u us) Statistics ===\n", _serviceName.c_str(), _period*1000);
         if (_jitterCount > 0)
              syslog(LOG_INFO, " Start Jitter (us): min = %.2f, max = %.2f, avg = %.2f\n",
                    _minJitter, _maxJitter, _totalJitter / _jitterCount);

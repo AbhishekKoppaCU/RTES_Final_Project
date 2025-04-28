@@ -73,7 +73,7 @@ void signal_handler(int signum) {
 
 
 
-
+/*
 static void set_realtime_priority(int priority) {
     struct sched_param param;
     param.sched_priority = priority;
@@ -81,16 +81,18 @@ static void set_realtime_priority(int priority) {
         syslog(LOG_ERR,"Failed to set real-time priority");
     }
 }
+*/
 
 void rx_service() {
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(RX_CORE_ID, &cpuset);
-    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-    set_realtime_priority(80);
+    //cpu_set_t cpuset;
+    //CPU_ZERO(&cpuset);
+    //CPU_SET(RX_CORE_ID, &cpuset);
+    //pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    //set_realtime_priority(80);
 
     struct rte_mbuf *mbufs[BURST_SIZE]; 
     syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
+    while(!force_quit){
     const uint16_t nb_rx = rte_eth_rx_burst(port_id, 0, mbufs, BURST_SIZE);
     total_rx += nb_rx;
     
@@ -111,18 +113,19 @@ void rx_service() {
         }
     }
 }
+}
 
 
 
 
 void detect_service() {
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(DETECTION_CORE_ID, &cpuset);
-    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-    set_realtime_priority(60);
+    //cpu_set_t cpuset;
+    //CPU_ZERO(&cpuset);
+    //CPU_SET(DETECTION_CORE_ID, &cpuset);
+    //pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    //set_realtime_priority(60);
 syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
-
+    while(!force_quit){
     struct detection_result *result = NULL;
     if (rte_ring_dequeue(packet_ring, (void **)&result) == 0 && result != NULL) {
         struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(result->mbuf, struct rte_ether_hdr *);
@@ -145,6 +148,8 @@ syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
         }
     }
 }
+//return NULL;
+}
 
 
 FILE *init_csv_file() {
@@ -162,22 +167,19 @@ FILE *init_csv_file() {
 
 void logger_service() {
     static bool initialized = false;
-    static FILE *csv_file;
-    static uint64_t tsc_hz;
+    static FILE *csv_file = NULL;
+    static uint64_t tsc_hz = 0;
     static struct log_entry history[MAX_HISTORY];
     static int history_count = 0;
-    syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
+    static uint64_t last_refresh_time = 0;
+
     if (!initialized) {
-        cpu_set_t cpuset;
-        CPU_ZERO(&cpuset);
-        CPU_SET(LOGGER_CORE_ID, &cpuset);
-        pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-        set_realtime_priority(30);
-
         tsc_hz = rte_get_tsc_hz();
-        csv_file = init_csv_file();
-
-        // Init ncurses
+        csv_file = fopen("packet_logger.csv", "w");
+        if (csv_file) {
+            fprintf(csv_file, "Timestamp,Source MAC,Destination MAC,Threat Status,Detect Delay,Log Delay\n");
+            fflush(csv_file);
+        }
         initscr();
         cbreak();
         noecho();
@@ -186,12 +188,11 @@ void logger_service() {
         start_color();
         init_pair(1, COLOR_RED, COLOR_BLACK);
         init_pair(2, COLOR_GREEN, COLOR_BLACK);
-
         initialized = true;
     }
 
     struct detection_result *result = NULL;
-    while (rte_ring_dequeue(detected_ring, (void **)&result) == 0 && result != NULL) {
+    if (rte_ring_dequeue(detected_ring, (void **)&result) == 0 && result != NULL) {
         struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(result->mbuf, struct rte_ether_hdr *);
         char src_mac[32], dst_mac[32];
         rte_ether_format_addr(src_mac, sizeof(src_mac), &eth_hdr->src_addr);
@@ -222,45 +223,42 @@ void logger_service() {
         history[history_count].log_delay_ms = log_delay_ms;
         history_count++;
 
-        fprintf(csv_file, "%s,%s,%s,%s,%ldms,%ldms\n",
-                timestamp, src_mac, dst_mac, result->threat_status,
-                detect_delay_ms, log_delay_ms);
-        fflush(csv_file);
+        if (csv_file) {
+            fprintf(csv_file, "%s,%s,%s,%s,%ldms,%ldms\n",
+                    timestamp, src_mac, dst_mac, result->threat_status,
+                    detect_delay_ms, log_delay_ms);
+            fflush(csv_file);
+        }
 
         rte_pktmbuf_free(result->mbuf);
         free(result);
     }
 
-    clear();
-    mvprintw(0, 0, "Timestamp              SourceMAC           DestinationMAC      Threat    DetectDelay  LogDelay");
-    for (int i = 0; i < history_count; i++) {
-        if (strcmp(history[i].threat_status, "THREAT") == 0) {
-            attron(COLOR_PAIR(1));
-        } else {
-            attron(COLOR_PAIR(2));
+    // Refresh ncurses screen every 100ms
+    uint64_t now = rte_get_timer_cycles();
+    uint64_t hz = rte_get_timer_hz();
+    if ((now - last_refresh_time) > (hz / 1)) { // 10ms
+        clear();
+        mvprintw(0, 0, "Timestamp              SourceMAC           DestinationMAC      Threat    DetectDelay  LogDelay");
+        for (int i = 0; i < history_count; i++) {
+            if (strcmp(history[i].threat_status, "THREAT") == 0) {
+                attron(COLOR_PAIR(1));
+            } else {
+                attron(COLOR_PAIR(2));
+            }
+            mvprintw(i + 1, 0, "%s  %s -> %s     %s         %ldms        %ldms",
+                     history[i].timestamp,
+                     history[i].src_mac,
+                     history[i].dst_mac,
+                     history[i].threat_status,
+                     history[i].detect_delay_ms,
+                     history[i].log_delay_ms);
+            attroff(COLOR_PAIR(1));
+            attroff(COLOR_PAIR(2));
         }
-
-
-        mvprintw(i + 1, 0, "%s  %s -> %s     %s         %ldms        %ldms",
-                 history[i].timestamp,
-                 history[i].src_mac,
-                 history[i].dst_mac,
-                 history[i].threat_status,
-                 history[i].detect_delay_ms,
-                 history[i].log_delay_ms);
-
-        attroff(COLOR_PAIR(1));
-        attroff(COLOR_PAIR(2));
-        }
-static uint64_t last_refresh_time = 0;
-uint64_t now = rte_get_timer_cycles();
-uint64_t hz = rte_get_timer_hz();
-
-if ((now - last_refresh_time) > (hz / 10)) { // Every 100ms
-    refresh();
-    last_refresh_time = now;
-}
-
+        refresh();
+        last_refresh_time = now;
+    }
 }
 
 
@@ -271,32 +269,24 @@ void led_service() {
     static bool initialized = false;
     static int blink_counter = 0;
 
-    
-    syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
-
-
     if (!initialized) {
-        cpu_set_t cpuset;
-        CPU_ZERO(&cpuset);
-        CPU_SET(LOGGER_CORE_ID, &cpuset);
-        pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-        set_realtime_priority(40);
-        printf("[LED] Service running on core %d\n", LOGGER_CORE_ID);
         initialized = true;
+        //printf("[LED] LED service initialized\n");
     }
 
-
-        if (!threat_detected) {
-            blink_counter++;
-            if (blink_counter >= 10) {
-                //printf("[LED] Blinking slowly (SAFE mode)\n");
-                blink_counter = 0;
-            }
-        } else {
-            //printf("[LED] Blinking rapidly (THREAT detected)\n");
-
+    if (!threat_detected) {
+        blink_counter++;
+        if (blink_counter >= 10) {
+            blink_counter = 0;
+            // Blink slowly (SAFE mode)
+            //printf("[LED] SAFE blinking\n");
         }
+    } else {
+        // Blink rapidly (THREAT detected)
+        //printf("[LED] THREAT blinking\n");
+    }
 }
+
 
 
 //void init_all_sems() {

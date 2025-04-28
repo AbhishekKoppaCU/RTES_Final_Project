@@ -47,112 +47,96 @@ public:
 
     Service(const Service&) = delete;
     Service& operator=(const Service&) = delete;
+
     template<typename T>
-    Service(T&& doService, uint8_t affinity, uint8_t priority, uint32_t period) :
+    Service(T&& doService, const std::string& serviceName, uint8_t affinity, uint8_t priority, uint32_t period) :
         _doService(std::forward<T>(doService)),
+        _serviceName(serviceName),
         _service(),
         _running(true),
         _affinity(affinity),
         _priority(priority),
         _period(period),
-	_minJitter(std::numeric_limits<double>::max()),
+        _minJitter(std::numeric_limits<double>::max()),
         _minExecTime(std::numeric_limits<double>::max())
-
     {
-        // todo: store service configuration values
-        // todo: initialize release semaphore
         sem_init(&_sem, 0, 0);
-        // Start the service thread, which will begin running the given function immediately
         _service = std::jthread(&Service::_provideService, this);
+        _csvFile = fopen((_serviceName + "_exec_times.csv").c_str(), "w");
+        if (_csvFile) {
+            fprintf(_csvFile, "ExecutionTime_us\n");
+            fflush(_csvFile);
+        }
     }
- 
-    void stop(){
-        // todo: change state to "not running" using an atomic variable
-        // (heads up: what if the service is waiting on the semaphore when this happens?)
-        _running.store(false);
-        sem_post(&_sem);  // unblock
 
+    void stop(){
+        _running.store(false);
+        sem_post(&_sem);
     }
- 
+
     void release(){
-        
-        // todo: release the service using the semaphore
         struct timespec releaseTime;
         clock_gettime(CLOCK_MONOTONIC, &releaseTime);
         {
-            std::lock_guard<std::mutex> lock(_releaseMutex); 
-
-	   _releaseTimes.push(releaseTime);
+            std::lock_guard<std::mutex> lock(_releaseMutex);
+            _releaseTimes.push(releaseTime);
         }
-	sem_post(&_sem);
+        sem_post(&_sem);
     }
-    
+
     ~Service()
     {
         stop();
         sem_destroy(&_sem);
-	printStatistics();
+        if (_csvFile) fclose(_csvFile);
+        printStatistics();
     }
 
     sem_t& getSemaphore() { return _sem; }
     uint32_t getPeriod() const { return _period; }
- 
+    
 private:
     std::function<void(void)> _doService;
     std::jthread _service;
-
-
     std::atomic<bool> _running;
     sem_t _sem;
 
     uint8_t _affinity;
     uint8_t _priority;
     uint32_t _period;
-    
+    std::string _serviceName;
+    FILE *_csvFile = nullptr;
+
     std::queue<struct timespec> _releaseTimes;
-    std::mutex _releaseMutex;  
+    std::mutex _releaseMutex;
+
     double _minJitter = 0, _maxJitter = 0, _totalJitter = 0;
     size_t _jitterCount = 0;
     double _minExecTime = 0, _maxExecTime = 0, _totalExecTime = 0;
     size_t _execCount = 0;
 
-    static inline double diffTimeUs(const struct timespec &start, const struct timespec &end) 
-    {
+    static inline double diffTimeUs(const struct timespec &start, const struct timespec &end) {
         return (end.tv_sec - start.tv_sec) * 1e6 + (end.tv_nsec - start.tv_nsec) / 1e3;
     }
 
-    void _taskLoop()
-    {
-        while (_running.load())
-        {
+    void _taskLoop() {
+        while (_running.load()) {
             sem_wait(&_sem);
-            if (!_running.load())
-	    {
-		break;
-    	    }
+            if (!_running.load()) break;
 
-
-
-        struct timespec releaseTime, startTime, endTime;
-        {
-            std::lock_guard<std::mutex> lock(_releaseMutex);
-            if (!_releaseTimes.empty())
+            struct timespec releaseTime, startTime, endTime;
             {
-                while (_releaseTimes.size() > 1)
-                {
+                std::lock_guard<std::mutex> lock(_releaseMutex);
+                if (!_releaseTimes.empty()) {
+                    while (_releaseTimes.size() > 1) _releaseTimes.pop();
+                    releaseTime = _releaseTimes.front();
                     _releaseTimes.pop();
+                } else {
+                    clock_gettime(CLOCK_MONOTONIC, &releaseTime);
                 }
-                releaseTime = _releaseTimes.front();
-                _releaseTimes.pop();
             }
-            else
-            {
-                clock_gettime(CLOCK_MONOTONIC, &releaseTime);
-            }
-        }
 
-	 clock_gettime(CLOCK_MONOTONIC, &startTime);
-
+            clock_gettime(CLOCK_MONOTONIC, &startTime);
             double jitter = diffTimeUs(releaseTime, startTime);
             _minJitter = std::min(_minJitter, jitter);
             _maxJitter = std::max(_maxJitter, jitter);
@@ -160,57 +144,52 @@ private:
             ++_jitterCount;
 
             _doService();
-	    
+
             clock_gettime(CLOCK_MONOTONIC, &endTime);
             double execTime = diffTimeUs(startTime, endTime);
             _minExecTime = std::min(_minExecTime, execTime);
             _maxExecTime = std::max(_maxExecTime, execTime);
             _totalExecTime += execTime;
             ++_execCount;
+
+            if (_csvFile) {
+                fprintf(_csvFile, "%.2f\n", execTime);
+                fflush(_csvFile);
+            }
         }
     }
-    
-    void _initializeService()
-    {
-        // todo: set affinity, priority, sched policy
-        // (heads up: the thread is already running and we're in its context right now)
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(_affinity, &cpuset);
-    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 
-    sched_param sch_params{};
-    sch_params.sched_priority = _priority;
-    pthread_setschedparam(pthread_self(), SCHED_FIFO, &sch_params);
+    void _initializeService() {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(_affinity, &cpuset);
+        pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+
+        sched_param sch_params{};
+        sch_params.sched_priority = _priority;
+        pthread_setschedparam(pthread_self(), SCHED_FIFO, &sch_params);
     }
 
-    void _provideService()
-    {
+    void _provideService() {
         _initializeService();
-        // todo: call _doService() on releases (sem acquire) while the atomic running variable is true
         _taskLoop();
     }
 
-void printStatistics() const 
-{
-    if (_period == INFINITE_PERIOD)
+
+    void printStatistics() const {
+  if (_period == INFINITE_PERIOD)
         return;  // Skip printing statistics for infinite services
-
-    syslog(LOG_INFO, "Service (Period: %u ms) Statistics:\n", _period);
-    
-    if (_jitterCount > 0)
-        syslog(LOG_INFO, "  Start Jitter (us): min = %.2f, max = %.2f, avg = %.2f\n",
-               _minJitter, _maxJitter, _totalJitter / _jitterCount);
-    
-    if (_execCount > 0)
-        syslog(LOG_INFO, "  Execution Time (us): min = %.2f, max = %.2f, avg = %.2f\n",
-               _minExecTime, _maxExecTime, _totalExecTime / _execCount);
-}
-
+        syslog(LOG_INFO,"\n=== Service: %-10s (Period: %u ms) Statistics ===\n", _serviceName.c_str(), _period);
+        if (_jitterCount > 0)
+             syslog(LOG_INFO, " Start Jitter (us): min = %.2f, max = %.2f, avg = %.2f\n",
+                   _minJitter, _maxJitter, _totalJitter / _jitterCount);
+        if (_execCount > 0)
+             syslog(LOG_INFO, "  Execution Time (us): min = %.2f, max = %.2f, avg = %.2f\n",
+                   _minExecTime, _maxExecTime, _totalExecTime / _execCount);
+    }
 
 
 };
- 
 // The sequencer class contains the services set and manages
 // starting/stopping the services. While the services are running,
 // the sequencer releases each service at the requisite timepoint.

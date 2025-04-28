@@ -12,27 +12,6 @@ extern "C" {
     #include "packet_logger.h"
 }
 
-// Function to post to logger semaphore
-//void post_logger() {
-  //  sem_post(&logger_sem);
-//}
-
-// Function to post to LED semaphore
-//void post_led() {
-  //  sem_post(&led_sem);
-//}
-
-// Function to post to RX semaphore
-//void post_rx() {
-  //  sem_post(&rx_sem);
-//}
-
-// Function to post to DETECT semaphore
-//void post_detect() {
-  //  sem_post(&detect_sem);
-//}
-
-// Threads
 pthread_t rx_thread, detect_thread, log_thread, led_thread;
 
 int main(int argc, char *argv[]) {
@@ -92,8 +71,8 @@ int main(int argc, char *argv[]) {
 
 
     // Add services directly (real functional services)
-    sequencer.addService(rx_service,     "RX",     RX_CORE_ID,        max_priority, 5);   // RX service: every 5 ms
-    sequencer.addService(detect_service, "DETECT", DETECTION_CORE_ID, max_priority, 5);   // Detection service: every 5 ms
+    sequencer.addService(rx_service,     "RX",     RX_CORE_ID,        max_priority, INFINITE_PERIOD);   // RX service: every 5 ms
+    sequencer.addService(detect_service, "DETECT", DETECTION_CORE_ID, max_priority, INFINITE_PERIOD);   // Detection service: every 5 ms
     sequencer.addService(led_service,    "LED",    LOGGER_CORE_ID,    max_priority-1, 10);   // LED service: every 5 ms
     sequencer.addService(logger_service, "LOGGER", LOGGER_CORE_ID,    max_priority, 5);  // Logger service: every 10 ms
 
@@ -115,10 +94,10 @@ while (!force_quit) {
 
     struct rte_eth_stats stats;
     if (rte_eth_stats_get(port_id, &stats) == 0) {
-        printf("Packets RX: %" PRIu64 "\n", stats.ipackets);
-        printf("Packets dropped RX: %" PRIu64 "\n", stats.imissed);
+        syslog(INFINITE_PERIOD,"Packets RX: %" PRIu64 "\n", stats.ipackets);
+        syslog(INFINITE_PERIOD,"Packets dropped RX: %" PRIu64 "\n", stats.imissed);
     } else {
-        printf("Failed to get Ethernet stats!\n");
+        syslog(INFINITE_PERIOD,"Failed to get Ethernet stats!\n");
     }
 
     fclose(csv_file);
@@ -129,7 +108,7 @@ while (!force_quit) {
     syslog(LOG_INFO, "Shutdown complete. Total packets received: %lu", total_rx);
     closelog();
 
-    printf("Running WCET plotting script...\n");
+    syslog(LOG_INFO,"Running WCET plotting script...\n");
     system("python3 plot_wcet.py");
 
     return 0;

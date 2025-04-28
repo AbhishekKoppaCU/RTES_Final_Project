@@ -37,12 +37,6 @@ FILE *csv_file;
 uint16_t port_id = 0;
 uint64_t total_rx = 0;
 
-//sem_t led_sem;
-//sem_t logger_sem;
-//sem_t rx_sem;
-//sem_t detect_sem;
-
-
 volatile bool threat_detected = false;
 
 struct detection_result {
@@ -65,30 +59,11 @@ void signal_handler(int signum) {
     if (signum == SIGINT || signum == SIGTERM) {
         force_quit = true;
         syslog(LOG_INFO,"\nSignal %d received, exiting...\n", signum);
-
-        // Safely exit ncurses if running
         endwin();
     }
 }
 
-
-
-/*
-static void set_realtime_priority(int priority) {
-    struct sched_param param;
-    param.sched_priority = priority;
-    if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0) {
-        syslog(LOG_ERR,"Failed to set real-time priority");
-    }
-}
-*/
-
 void rx_service() {
-    //cpu_set_t cpuset;
-    //CPU_ZERO(&cpuset);
-    //CPU_SET(RX_CORE_ID, &cpuset);
-    //pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-    //set_realtime_priority(80);
 
     struct rte_mbuf *mbufs[BURST_SIZE]; 
     syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
@@ -119,11 +94,6 @@ void rx_service() {
 
 
 void detect_service() {
-    //cpu_set_t cpuset;
-    //CPU_ZERO(&cpuset);
-    //CPU_SET(DETECTION_CORE_ID, &cpuset);
-    //pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-    //set_realtime_priority(60);
 syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
     while(!force_quit){
     struct detection_result *result = NULL;
@@ -174,6 +144,7 @@ void logger_service() {
     static uint64_t last_refresh_time = 0;
 
     if (!initialized) {
+        syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
         tsc_hz = rte_get_tsc_hz();
         csv_file = fopen("packet_logger.csv", "w");
         if (csv_file) {
@@ -268,8 +239,9 @@ void logger_service() {
 void led_service() {
     static bool initialized = false;
     static int blink_counter = 0;
-
+    
     if (!initialized) {
+        syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
         initialized = true;
         //printf("[LED] LED service initialized\n");
     }
@@ -286,26 +258,4 @@ void led_service() {
         //printf("[LED] THREAT blinking\n");
     }
 }
-
-
-
-//void init_all_sems() {
-    //sem_init(&rx_sem, 0, 0);
-    //sem_init(&detect_sem, 0, 0);
-    //sem_init(&led_sem, 0, 0);
-    //sem_init(&logger_sem, 0, 0);
-//}
-
-
-//void init_logger_led_threads(pthread_t *log_thread, pthread_t *led_thread) {
-
-    //pthread_create(log_thread, NULL, logger_thread_func, NULL);
-    //pthread_create(led_thread, NULL, led_thread_func, NULL);
-//}
-
-//void join_logger_led_threads(pthread_t log_thread, pthread_t led_thread) {
-    //pthread_join(log_thread, NULL);
-    //pthread_join(led_thread, NULL);
-//}
-
 

@@ -208,30 +208,29 @@ public:
         //_services.emplace_back(std::forward<Args>(args)...);
             _services.emplace_back(std::make_unique<Service>(std::forward<Args>(args)...));
     }
-
 void startServices()
 {
     _runningTimer.store(true);
 
-    _tickThread = std::jthread([](Sequencer* self){
+    _tickThread = std::jthread([](Sequencer* self) {
         int tick_ms = 0;
+        static std::unordered_map<Service*, bool> started_map;  // Moved outside loop
+
         while (self->_runningTimer.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            tick_ms += 1;
+            ++tick_ms;
 
             for (auto& service : self->_services) {
-                if (service->getPeriod() == INFINITE_PERIOD)
-                {
-                    static bool started = false;
-                    if (!started)
-                    {
-                        sem_post(&service->getSemaphore());
-                        started = true;
+                Service* service_ptr = service.get(); // Get raw pointer once
+
+                if (service_ptr->getPeriod() == INFINITE_PERIOD) {
+                    if (!started_map[service_ptr]) {
+                        sem_post(&service_ptr->getSemaphore());
+                        started_map[service_ptr] = true;
                     }
                 }
-                else if (tick_ms % service->getPeriod() == 0)
-                {
-                    sem_post(&service->getSemaphore());
+                else if (tick_ms % service_ptr->getPeriod() == 0) {
+                    sem_post(&service_ptr->getSemaphore());
                 }
             }
 

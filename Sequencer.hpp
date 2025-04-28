@@ -10,7 +10,9 @@
  * This code combines parts of model code from Exercises 1 to 4,
  * along with help from LLM-based tools for C++ syntax and structure.
  */
-
+extern "C" {
+    #include "packet_logger.h"
+}
 #pragma once
 
 #include <cstdint>
@@ -28,6 +30,11 @@
 #include <mutex>
 #include <algorithm>
 #include <queue>
+#include <atomic>
+#include <thread>
+
+
+
 // The service class contains the service function and service parameters
 // (priority, affinity, etc). It spawns a thread to run the service, configures
 // the thread as required, and executes the service whenever it gets released.
@@ -184,16 +191,22 @@ private:
         _taskLoop();
     }
 
-    void printStatistics() const 
+void printStatistics() const 
 {
-    printf("Service (Period: %u ms) Statistics:\n", _period);
+    if (_period == INFINITE_PERIOD)
+        return;  // Skip printing statistics for infinite services
+
+    syslog(LOG_INFO, "Service (Period: %u ms) Statistics:\n", _period);
+    
     if (_jitterCount > 0)
-        printf("  Start Jitter (us): min = %.2f, max = %.2f, avg = %.2f\n",
+        syslog(LOG_INFO, "  Start Jitter (us): min = %.2f, max = %.2f, avg = %.2f\n",
                _minJitter, _maxJitter, _totalJitter / _jitterCount);
+    
     if (_execCount > 0)
-        printf("  Execution Time (us): min = %.2f, max = %.2f, avg = %.2f\n",
+        syslog(LOG_INFO, "  Execution Time (us): min = %.2f, max = %.2f, avg = %.2f\n",
                _minExecTime, _maxExecTime, _totalExecTime / _execCount);
 }
+
 
 
 };
@@ -213,43 +226,53 @@ public:
             _services.emplace_back(std::make_unique<Service>(std::forward<Args>(args)...));
     }
 
-    void startServices()
-    {
-        // todo: start timer(s), release services
-                _instance = this;
+void startServices()
+{
+    _runningTimer.store(true);
 
-        struct sigaction sa{};
-        sa.sa_flags = SA_SIGINFO;
-        sa.sa_sigaction = _timerHandler;
-        sigemptyset(&sa.sa_mask);
-        sigaction(SIGRTMIN, &sa, nullptr);
+    _tickThread = std::jthread([](Sequencer* self){
+        int tick_ms = 0;
+        while (self->_runningTimer.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            tick_ms += 1;
 
-        struct sigevent sev{};
-        sev.sigev_notify = SIGEV_SIGNAL;
-        sev.sigev_signo = SIGRTMIN;
-        sev.sigev_value.sival_ptr = &_timerId;
+            for (auto& service : self->_services) {
+                if (service->getPeriod() == INFINITE_PERIOD)
+                {
+                    static bool started = false;
+                    if (!started)
+                    {
+                        sem_post(&service->getSemaphore());
+                        started = true;
+                    }
+                }
+                else if (tick_ms % service->getPeriod() == 0)
+                {
+                    sem_post(&service->getSemaphore());
+                }
+            }
 
-        timer_create(CLOCK_REALTIME, &sev, &_timerId);
+            if (tick_ms >= 1000) tick_ms = 0;
+        }
+    }, this);
+}
 
-        struct itimerspec its{};
-        its.it_value.tv_sec = 0;
-        its.it_value.tv_nsec = 5 * 1000000;        // 5 ms
-        its.it_interval.tv_sec = 0;
-        its.it_interval.tv_nsec = 5 * 1000000;     // 5 ms
-        
-        timer_settime(_timerId, 0, &its, nullptr);
-    }
 
-    void stopServices()
-    {
-        // todo: stop timer(s), stop services
-        timer_delete(_timerId);
-        for (auto& service : _services)
-            service->stop();
-            //service.stop();
-    }
+void stopServices()
+{
+    _runningTimer.store(false); // Tell tick thread to stop
+    if (_tickThread.joinable())
+        _tickThread.join();
+
+    for (auto& service : _services)
+        service->stop();
+}
+
+
 
 private:
+    std::jthread _tickThread;
+    std::atomic<bool> _runningTimer {false};
     //std::vector<Service> _services;
     std::vector<std::unique_ptr<Service>> _services;
 
@@ -260,21 +283,26 @@ private:
     {
     (void)sig; (void)si; (void)uc;
         static int tick = 0;
-        tick += 5;
+        tick += 1;
 
         if (!_instance) return;
 
         for (auto& service : _instance->_services)
         {
-            //if (tick % service.getPeriod() == 0)
-            if (tick % service->getPeriod() == 0)
-            {
-                //sem_post(&service.getSemaphore());
-                sem_post(&service->getSemaphore());
-                syslog(LOG_INFO, "Sequencer: Service with period:  %u ms tarted", service->getPeriod());
-            }
+            if (service->getPeriod() == INFINITE_PERIOD)
+                {
+                    static bool started = false;
+                    if (!started)
+                    {
+                        sem_post(&service->getSemaphore());
+                        started = true;
+                    }
+                }
+                else if (tick % service->getPeriod() == 0)
+                    {
+                        sem_post(&service->getSemaphore());
+                    }
         }
-
         if (tick >= 100) tick = 0;
     }
 };

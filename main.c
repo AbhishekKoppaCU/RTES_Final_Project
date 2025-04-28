@@ -18,6 +18,7 @@
 #include <rte_mbuf.h>
 #include <rte_cycles.h>
 #include <rte_ring.h>
+#include <syslog.h>
 
 #include "packet_logger.h"
 
@@ -69,7 +70,7 @@ struct log_entry {
 void signal_handler(int signum) {
     if (signum == SIGINT || signum == SIGTERM) {
         force_quit = true;
-        printf("\nSignal %d received, exiting...\n", signum);
+        syslog(LOG_INFO,"\nSignal %d received, exiting...\n", signum);
 
         // Unblock any threads waiting on semaphores
         sem_post(&led_sem);
@@ -82,7 +83,7 @@ static void set_realtime_priority(int priority) {
     struct sched_param param;
     param.sched_priority = priority;
     if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0) {
-        perror("Failed to set real-time priority");
+        syslog(LOG_ERR,"Failed to set real-time priority");
     }
 }
 
@@ -95,7 +96,8 @@ void *rx_thread_func(void *arg) {
     set_realtime_priority(80);
 
     struct rte_mbuf *mbufs[BURST_SIZE];
-    printf("[RX] Thread running on core %d\n", RX_CORE_ID);
+syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
+
 
     while (!force_quit) {
         const uint16_t nb_rx = rte_eth_rx_burst(port_id, 0, mbufs, BURST_SIZE);
@@ -130,7 +132,8 @@ void *intrusion_detection_thread_func(void *arg) {
     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
     set_realtime_priority(60);
 
-    printf("[DETECTION] Thread running on core %d\n", DETECTION_CORE_ID);
+syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
+
 
     while (!force_quit) {
         struct detection_result *result = NULL;
@@ -159,7 +162,7 @@ void *intrusion_detection_thread_func(void *arg) {
 FILE *init_csv_file() {
     FILE *csv_file = fopen("packet_logger.csv", "w");
     if (!csv_file) {
-        perror("Failed to open CSV file for writing");
+        syslog(LOG_ERR, "Failed to open CSV file for writing");
         exit(EXIT_FAILURE);
     }
 
@@ -177,7 +180,8 @@ void *logger_thread_func(void *arg) {
     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
     set_realtime_priority(30);
 
-    printf("[LOGGER] Thread running on core %d\n", LOGGER_CORE_ID);
+    syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
+
 
     uint64_t tsc_hz = rte_get_tsc_hz(); // Get TSC frequency once
 
@@ -290,7 +294,7 @@ void *led_thread_func(void *arg) {
 
     int blink_counter = 0;
     
-    printf("[LED] Thread running on core %d\n", LOGGER_CORE_ID);
+    syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
 
     while (!force_quit) {
         sem_wait(&led_sem);
@@ -298,11 +302,11 @@ void *led_thread_func(void *arg) {
         if (!threat_detected) {
             blink_counter++;
             if (blink_counter >= 10) {
-                printf("[LED] Blinking slowly (SAFE mode)\n");
+                //printf("[LED] Blinking slowly (SAFE mode)\n");
                 blink_counter = 0;
             }
         } else {
-            printf("[LED] Blinking rapidly (THREAT detected)\n");
+            //printf("[LED] Blinking rapidly (THREAT detected)\n");
         }
     }
     return NULL;

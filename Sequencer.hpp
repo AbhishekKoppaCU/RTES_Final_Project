@@ -10,7 +10,9 @@
  * This code combines parts of model code from Exercises 1 to 4,
  * along with help from LLM-based tools for C++ syntax and structure.
  */
-
+extern "C" {
+    #include "packet_logger.h"
+}
 #pragma once
 
 #include <cstdint>
@@ -184,16 +186,22 @@ private:
         _taskLoop();
     }
 
-    void printStatistics() const 
+void printStatistics() const 
 {
-    printf("Service (Period: %u ms) Statistics:\n", _period);
+    if (_period == INFINITE_PERIOD)
+        return;  // Skip printing statistics for infinite services
+
+    syslog(LOG_INFO, "Service (Period: %u ms) Statistics:\n", _period);
+    
     if (_jitterCount > 0)
-        printf("  Start Jitter (us): min = %.2f, max = %.2f, avg = %.2f\n",
+        syslog(LOG_INFO, "  Start Jitter (us): min = %.2f, max = %.2f, avg = %.2f\n",
                _minJitter, _maxJitter, _totalJitter / _jitterCount);
+    
     if (_execCount > 0)
-        printf("  Execution Time (us): min = %.2f, max = %.2f, avg = %.2f\n",
+        syslog(LOG_INFO, "  Execution Time (us): min = %.2f, max = %.2f, avg = %.2f\n",
                _minExecTime, _maxExecTime, _totalExecTime / _execCount);
 }
+
 
 
 };
@@ -266,15 +274,20 @@ private:
 
         for (auto& service : _instance->_services)
         {
-            //if (tick % service.getPeriod() == 0)
-            if (tick % service->getPeriod() == 0)
-            {
-                //sem_post(&service.getSemaphore());
-                sem_post(&service->getSemaphore());
-                syslog(LOG_INFO, "Sequencer: Service with period:  %u ms tarted", service->getPeriod());
-            }
+            if (service->getPeriod() == INFINITE_PERIOD)
+                {
+                    static bool started = false;
+                    if (!started)
+                    {
+                        sem_post(&service->getSemaphore());
+                        started = true;
+                    }
+                }
+                else if (tick % service->getPeriod() == 0)
+                    {
+                        sem_post(&service->getSemaphore());
+                    }
         }
-
         if (tick >= 100) tick = 0;
     }
 };

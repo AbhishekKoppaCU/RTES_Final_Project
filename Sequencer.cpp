@@ -88,14 +88,15 @@ int main(int argc, char *argv[]) {
 
     // Add all threads to the sequencer
     Sequencer sequencer;
+    int max_priority = sched_get_priority_max(SCHED_FIFO);
 
     // Infinite services
-    sequencer.addService(post_rx,     1, 0, 5); // RX thread: infinite
-    sequencer.addService(post_detect, 2, 0, 5); // Detection thread: infinite
+    sequencer.addService(post_rx,     1, max_priority, INFINITE_PERIOD); // RX thread: infinite
+    sequencer.addService(post_detect, 2, max_priority, INFINITE_PERIOD); // Detection thread: infinite
 
     // Periodic services
-    sequencer.addService(post_led,    3, 40, 5);    // LED service: every 100ms
-    sequencer.addService(post_logger, 3, 30, 10);   // Logger service: every 1000ms
+    sequencer.addService(post_led,    3, max_priority, 5);    // LED service: every 100ms
+    sequencer.addService(post_logger, 3, max_priority-1, 10);   // Logger service: every 1000ms
 
     // Start sequencer
     sequencer.startServices();

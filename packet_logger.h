@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdint.h>
-
+#define INFINITE_PERIOD UINT32_MAX
 #ifdef __cplusplus
 extern "C" {
 #endif

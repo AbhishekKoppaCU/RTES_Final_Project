@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdint.h>
-
+#define INFINITE_PERIOD UINT32_MAX
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -19,10 +19,16 @@ extern uint16_t port_id;
 extern uint64_t total_rx;
 
 // DPDK constants
-#define RX_RING_SIZE 1024
-#define NUM_MBUFS 8191
+//#define RX_RING_SIZE 1024
+//#define NUM_MBUFS 8191
+//#define MBUF_CACHE_SIZE 250
+//#define BURST_SIZE 32
+
+#define RX_RING_SIZE 2048
+#define NUM_MBUFS 8191  // No need to change now
 #define MBUF_CACHE_SIZE 250
 #define BURST_SIZE 32
+
 #define PACKET_RING_NAME "PACKET_RING"
 #define DETECTED_RING_NAME "DETECTED_RING"
 

@@ -18,15 +18,10 @@
 #include <rte_mbuf.h>
 #include <rte_cycles.h>
 #include <rte_ring.h>
+#include <syslog.h>
 
 #include "packet_logger.h"
 
-#define RX_RING_SIZE 1024
-#define NUM_MBUFS 8191
-#define MBUF_CACHE_SIZE 250
-#define BURST_SIZE 32
-#define PACKET_RING_NAME "PACKET_RING"
-#define DETECTED_RING_NAME "DETECTED_RING"
 
 #define RX_CORE_ID 1
 #define DETECTION_CORE_ID 2
@@ -69,7 +64,7 @@ struct log_entry {
 void signal_handler(int signum) {
     if (signum == SIGINT || signum == SIGTERM) {
         force_quit = true;
-        printf("\nSignal %d received, exiting...\n", signum);
+        syslog(LOG_INFO,"\nSignal %d received, exiting...\n", signum);
 
         // Safely exit ncurses if running
         endwin();
@@ -83,7 +78,7 @@ static void set_realtime_priority(int priority) {
     struct sched_param param;
     param.sched_priority = priority;
     if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0) {
-        perror("Failed to set real-time priority");
+        syslog(LOG_ERR,"Failed to set real-time priority");
     }
 }
 
@@ -94,8 +89,8 @@ void rx_service() {
     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
     set_realtime_priority(80);
 
-    struct rte_mbuf *mbufs[BURST_SIZE];
-    
+    struct rte_mbuf *mbufs[BURST_SIZE]; 
+    syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
     const uint16_t nb_rx = rte_eth_rx_burst(port_id, 0, mbufs, BURST_SIZE);
     total_rx += nb_rx;
     
@@ -126,6 +121,7 @@ void detect_service() {
     CPU_SET(DETECTION_CORE_ID, &cpuset);
     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
     set_realtime_priority(60);
+syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
 
     struct detection_result *result = NULL;
     if (rte_ring_dequeue(packet_ring, (void **)&result) == 0 && result != NULL) {
@@ -145,6 +141,7 @@ void detect_service() {
         if (rte_ring_enqueue(detected_ring, result) < 0) {
             rte_pktmbuf_free(result->mbuf);
             free(result);
+
         }
     }
 }
@@ -153,7 +150,7 @@ void detect_service() {
 FILE *init_csv_file() {
     FILE *csv_file = fopen("packet_logger.csv", "w");
     if (!csv_file) {
-        perror("Failed to open CSV file for writing");
+        syslog(LOG_ERR, "Failed to open CSV file for writing");
         exit(EXIT_FAILURE);
     }
 
@@ -169,7 +166,7 @@ void logger_service() {
     static uint64_t tsc_hz;
     static struct log_entry history[MAX_HISTORY];
     static int history_count = 0;
-
+    syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
     if (!initialized) {
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
@@ -243,6 +240,7 @@ void logger_service() {
             attron(COLOR_PAIR(2));
         }
 
+
         mvprintw(i + 1, 0, "%s  %s -> %s     %s         %ldms        %ldms",
                  history[i].timestamp,
                  history[i].src_mac,
@@ -253,9 +251,18 @@ void logger_service() {
 
         attroff(COLOR_PAIR(1));
         attroff(COLOR_PAIR(2));
-    }
+        }
+static uint64_t last_refresh_time = 0;
+uint64_t now = rte_get_timer_cycles();
+uint64_t hz = rte_get_timer_hz();
+
+if ((now - last_refresh_time) > (hz / 10)) { // Every 100ms
     refresh();
+    last_refresh_time = now;
 }
+
+}
+
 
 
 
@@ -263,6 +270,10 @@ void logger_service() {
 void led_service() {
     static bool initialized = false;
     static int blink_counter = 0;
+
+    
+    syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
+
 
     if (!initialized) {
         cpu_set_t cpuset;
@@ -274,15 +285,17 @@ void led_service() {
         initialized = true;
     }
 
-    if (!threat_detected) {
-        blink_counter++;
-        if (blink_counter >= 10) {
-            printf("[LED] Blinking slowly (SAFE mode)\n");
-            blink_counter = 0;
+
+        if (!threat_detected) {
+            blink_counter++;
+            if (blink_counter >= 10) {
+                //printf("[LED] Blinking slowly (SAFE mode)\n");
+                blink_counter = 0;
+            }
+        } else {
+            //printf("[LED] Blinking rapidly (THREAT detected)\n");
+
         }
-    } else {
-        printf("[LED] Blinking rapidly (THREAT detected)\n");
-    }
 }
 
 

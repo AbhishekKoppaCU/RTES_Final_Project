@@ -75,8 +75,12 @@ int main(int argc, char *argv[]) {
     fprintf(csv_file, "Timestamp,Source MAC,Destination MAC,Threat Status\n");
 
     // Create rings
-    packet_ring = rte_ring_create(PACKET_RING_NAME, 1024, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
-    detected_ring = rte_ring_create(DETECTED_RING_NAME, 1024, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+    // New
+    packet_ring = rte_ring_create(PACKET_RING_NAME, 2048, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+    detected_ring = rte_ring_create(DETECTED_RING_NAME, 8192, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+
+    //packet_ring = rte_ring_create(PACKET_RING_NAME, 1024, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+    //detected_ring = rte_ring_create(DETECTED_RING_NAME, 1024, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
     if (!packet_ring || !detected_ring) {
         syslog(LOG_ERR, "Failed to create rings");
         return -1;
@@ -84,25 +88,39 @@ int main(int argc, char *argv[]) {
 
     // Create Sequencer
     Sequencer sequencer;
+    int max_priority = sched_get_priority_max(SCHED_FIFO);
+
 
     // Add services directly (real functional services)
-    sequencer.addService(rx_service,     "RX",     RX_CORE_ID,        80, 5);   // RX service: every 5 ms
-    sequencer.addService(detect_service, "DETECT", DETECTION_CORE_ID, 60, 5);   // Detection service: every 5 ms
-    sequencer.addService(led_service,    "LED",    LOGGER_CORE_ID,    40, 5);   // LED service: every 5 ms
-    sequencer.addService(logger_service, "LOGGER", LOGGER_CORE_ID,    30, 10);  // Logger service: every 10 ms
+    sequencer.addService(rx_service,     "RX",     RX_CORE_ID,        max_priority, INFINITE_PERIOD);   // RX service: every 5 ms
+    sequencer.addService(detect_service, "DETECT", DETECTION_CORE_ID, max_priority, INFINITE_PERIOD);   // Detection service: every 5 ms
+    sequencer.addService(led_service,    "LED",    LOGGER_CORE_ID,    max_priority-1, 10);   // LED service: every 5 ms
+    sequencer.addService(logger_service, "LOGGER", LOGGER_CORE_ID,    max_priority, 5);  // Logger service: every 10 ms
+
 
     // Start the sequencer
     sequencer.startServices();
 
-    // Run the system
-    while (!force_quit) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+
+    // Run system
+while (!force_quit) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
+
 
     // Stop the sequencer
     sequencer.stopServices();
 
-    // Cleanup resources
+
+    struct rte_eth_stats stats;
+    if (rte_eth_stats_get(port_id, &stats) == 0) {
+        printf("Packets RX: %" PRIu64 "\n", stats.ipackets);
+        printf("Packets dropped RX: %" PRIu64 "\n", stats.imissed);
+    } else {
+        printf("Failed to get Ethernet stats!\n");
+    }
+
     fclose(csv_file);
     rte_eth_dev_stop(port_id);
     rte_eth_dev_close(port_id);

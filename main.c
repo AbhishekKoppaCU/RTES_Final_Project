@@ -22,12 +22,6 @@
 
 #include "packet_logger.h"
 
-#define RX_RING_SIZE 1024
-#define NUM_MBUFS 8191
-#define MBUF_CACHE_SIZE 250
-#define BURST_SIZE 32
-#define PACKET_RING_NAME "PACKET_RING"
-#define DETECTED_RING_NAME "DETECTED_RING"
 
 #define RX_CORE_ID 1
 #define DETECTION_CORE_ID 2

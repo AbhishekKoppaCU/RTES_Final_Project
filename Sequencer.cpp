@@ -73,8 +73,12 @@ int main(int argc, char *argv[]) {
     fprintf(csv_file, "Timestamp,Source MAC,Destination MAC,Threat Status\n");
 
     // Create rings
-    packet_ring = rte_ring_create(PACKET_RING_NAME, 1024, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
-    detected_ring = rte_ring_create(DETECTED_RING_NAME, 1024, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+    // New
+    packet_ring = rte_ring_create(PACKET_RING_NAME, 2048, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+    detected_ring = rte_ring_create(DETECTED_RING_NAME, 8192, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+
+    //packet_ring = rte_ring_create(PACKET_RING_NAME, 1024, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
+    //detected_ring = rte_ring_create(DETECTED_RING_NAME, 1024, rte_socket_id(), RING_F_SP_ENQ | RING_F_SC_DEQ);
     if (!packet_ring || !detected_ring) {
         syslog(LOG_ERR, "Failed to create rings");
         return -1;
@@ -95,8 +99,8 @@ int main(int argc, char *argv[]) {
     sequencer.addService(post_detect, 2, max_priority, INFINITE_PERIOD); // Detection thread: infinite
 
     // Periodic services
-    sequencer.addService(post_led,    3, max_priority, 5);    // LED service: every 100ms
-    sequencer.addService(post_logger, 3, max_priority-1, 10);   // Logger service: every 1000ms
+    sequencer.addService(post_led,    3, max_priority-1, 10);    // LED service: every 100ms
+    sequencer.addService(post_logger, 3, max_priority, 5);   // Logger service: every 1000ms
 
     // Start sequencer
     sequencer.startServices();
@@ -111,7 +115,13 @@ int main(int argc, char *argv[]) {
     pthread_join(rx_thread, nullptr);
     pthread_join(detect_thread, nullptr);
     join_logger_led_threads(log_thread, led_thread);
-
+    struct rte_eth_stats stats;
+    if (rte_eth_stats_get(port_id, &stats) == 0) {
+        printf("Packets RX: %" PRIu64 "\n", stats.ipackets);
+        printf("Packets dropped RX: %" PRIu64 "\n", stats.imissed);
+    } else {
+        printf("Failed to get Ethernet stats!\n");
+    }
     fclose(csv_file);
     rte_eth_dev_stop(port_id);
     rte_eth_dev_close(port_id);

@@ -266,9 +266,15 @@ void *logger_thread_func(void *arg) {
             attroff(COLOR_PAIR(1));
             attroff(COLOR_PAIR(2));
         }
+static uint64_t last_refresh_time = 0;
+uint64_t now = rte_get_timer_cycles();
+uint64_t hz = rte_get_timer_hz();
 
-        refresh();
-        usleep(50000); // Small sleep to avoid 100% CPU
+if ((now - last_refresh_time) > (hz / 10)) { // Every 100ms
+    refresh();
+    last_refresh_time = now;
+}
+
     }
 
     fclose(csv_file);

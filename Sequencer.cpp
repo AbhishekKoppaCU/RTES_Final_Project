@@ -106,7 +106,9 @@ int main(int argc, char *argv[]) {
     sequencer.startServices();
 
     // Run system
-    std::this_thread::sleep_for(std::chrono::seconds(10));
+while (!force_quit) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }\
 
     // Stop sequencer
     sequencer.stopServices();

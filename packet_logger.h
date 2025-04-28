@@ -41,16 +41,16 @@ extern sem_t detect_sem;
 extern volatile bool threat_detected;
 
 // Thread prototypes
-void *rx_thread_func(void *arg);
-void *intrusion_detection_thread_func(void *arg);
-void *logger_thread_func(void *arg);
-void *led_thread_func(void *arg);
-void init_all_sems();
+void rx_service();
+void detect_service();
+void logger_service();
+void led_service();
+//void init_all_sems();
 
 
 // Wrapper APIs for LED/Logger threads
-void init_logger_led_threads(pthread_t *log_thread, pthread_t *led_thread);
-void join_logger_led_threads(pthread_t log_thread, pthread_t led_thread);
+//void init_logger_led_threads(pthread_t *log_thread, pthread_t *led_thread);
+//void join_logger_led_threads(pthread_t log_thread, pthread_t led_thread);
 
 // Signal handler
 void signal_handler(int signum);

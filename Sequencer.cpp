@@ -13,24 +13,24 @@ extern "C" {
 }
 
 // Function to post to logger semaphore
-void post_logger() {
-    sem_post(&logger_sem);
-}
+//void post_logger() {
+  //  sem_post(&logger_sem);
+//}
 
 // Function to post to LED semaphore
-void post_led() {
-    sem_post(&led_sem);
-}
+//void post_led() {
+  //  sem_post(&led_sem);
+//}
 
 // Function to post to RX semaphore
-void post_rx() {
-    sem_post(&rx_sem);
-}
+//void post_rx() {
+  //  sem_post(&rx_sem);
+//}
 
 // Function to post to DETECT semaphore
-void post_detect() {
-    sem_post(&detect_sem);
-}
+//void post_detect() {
+  //  sem_post(&detect_sem);
+//}
 
 // Threads
 pthread_t rx_thread, detect_thread, log_thread, led_thread;
@@ -39,11 +39,13 @@ int main(int argc, char *argv[]) {
     openlog("PthreadService", LOG_PID | LOG_CONS | LOG_PERROR, LOG_USER);
     syslog(LOG_INFO, "Starting DPDK packet sniffer with sequencer-controlled services...");
 
+    // Initialize DPDK
     if (rte_eal_init(argc, argv) < 0) {
         syslog(LOG_ERR, "Failed to initialize DPDK EAL");
         return -1;
     }
 
+    // Setup signal handlers
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
@@ -55,7 +57,7 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    // Configure port
+    // Configure Ethernet port
     struct rte_eth_conf port_conf = {};
     if (rte_eth_dev_configure(port_id, 1, 0, &port_conf) < 0 ||
         rte_eth_rx_queue_setup(port_id, 0, RX_RING_SIZE, rte_eth_dev_socket_id(port_id), NULL, mbuf_pool) < 0 ||
@@ -80,37 +82,27 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    // Create all threads
-    init_all_sems();
-    pthread_create(&rx_thread, nullptr, rx_thread_func, nullptr);
-    pthread_create(&detect_thread, nullptr, intrusion_detection_thread_func, nullptr);
-    init_logger_led_threads(&log_thread, &led_thread);
-
-    // Add all threads to the sequencer
+    // Create Sequencer
     Sequencer sequencer;
 
-    // Infinite services
-    sequencer.addService(post_rx, "RX",     0, 0, 5); // RX thread: infinite
-    sequencer.addService(post_detect, "DETECT",  0, 0, 5); // Detection thread: infinite
+    // Add services directly (real functional services)
+    sequencer.addService(rx_service,     "RX",     RX_CORE_ID,        80, 5);   // RX service: every 5 ms
+    sequencer.addService(detect_service, "DETECT", DETECTION_CORE_ID, 60, 5);   // Detection service: every 5 ms
+    sequencer.addService(led_service,    "LED",    LOGGER_CORE_ID,    40, 5);   // LED service: every 5 ms
+    sequencer.addService(logger_service, "LOGGER", LOGGER_CORE_ID,    30, 10);  // Logger service: every 10 ms
 
-    // Periodic services
-    sequencer.addService(post_led, "LED",   1, 40, 5);    // LED service: every 100ms
-    sequencer.addService(post_logger, "LOGGER", 3, 30, 10);   // Logger service: every 1000ms
-
-    // Start sequencer
+    // Start the sequencer
     sequencer.startServices();
 
-    // Run system
-    std::this_thread::sleep_for(std::chrono::seconds(10));
+    // Run the system
+    while (!force_quit) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
 
-    // Stop sequencer
+    // Stop the sequencer
     sequencer.stopServices();
 
-    // Join all threads
-    pthread_join(rx_thread, nullptr);
-    pthread_join(detect_thread, nullptr);
-    join_logger_led_threads(log_thread, led_thread);
-
+    // Cleanup resources
     fclose(csv_file);
     rte_eth_dev_stop(port_id);
     rte_eth_dev_close(port_id);
@@ -118,8 +110,11 @@ int main(int argc, char *argv[]) {
 
     syslog(LOG_INFO, "Shutdown complete. Total packets received: %lu", total_rx);
     closelog();
-    
+
     printf("Running WCET plotting script...\n");
     system("python3 plot_wcet.py");
+
     return 0;
 }
+
+

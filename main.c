@@ -243,16 +243,16 @@ void led_service() {
     if (!initialized) {
         syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
         initialized = true;
-        printf("[LED] LED service initialized\n");
+        //printf("[LED] LED service initialized\n");
     }
 
    if (!threat_detected) {
         blink_counter++;
         if (blink_counter >= 10) {
             blink_counter = 0;
-            syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
+            //syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
     } else {
-        syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
+        //syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
     }
 }
 }

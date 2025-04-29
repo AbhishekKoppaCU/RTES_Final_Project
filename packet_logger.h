@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdint.h>
+#include "server_service.h"
 #define INFINITE_PERIOD UINT32_MAX
 #ifdef __cplusplus
 extern "C" {

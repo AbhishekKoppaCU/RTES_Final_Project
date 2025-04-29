@@ -8,9 +8,10 @@ DPDK_CFLAGS = $(shell $(PKGCONF) --cflags libdpdk)
 DPDK_LDLIBS = $(shell $(PKGCONF) --libs libdpdk)
 
 # Sources and targets
-C_SOURCES = main.c
+C_SOURCES = main.c server_service.c
 CPP_SOURCES = Sequencer.cpp
-OBJECTS = main.o Sequencer.o
+OBJECTS = main.o server_service.o Sequencer.o
+
 
 TARGET = packet_logger
 

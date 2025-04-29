@@ -1,5 +1,5 @@
 // server_service.c
-
+#define _GNU_SOURCE   
 #include "packet_logger.h"
 
 #include <sys/socket.h>
@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <syslog.h>
+#include <sched.h>
+
 
 void server_service() {
     static int server_fd = -1;
@@ -20,7 +22,7 @@ void server_service() {
 
         struct sockaddr_in address;
         int opt = 1;
-        int addrlen = sizeof(address);
+        //int addrlen = sizeof(address);
 
         // Create socket
         if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
@@ -61,17 +63,23 @@ void server_service() {
     socklen_t client_addrlen = sizeof(client_address);
     int new_socket = accept(server_fd, (struct sockaddr *)&client_address, &client_addrlen);
 
-    if (new_socket >= 0) {
-        // Client connected
-        const char *response =
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: 23\r\n"
-            "\r\n"
-            "Welcome to Company LAN";
+if (new_socket >= 0) {
+    const char *body = "Welcome to Rivian LAN\n";
+    char response[256];
 
-        send(new_socket, response, strlen(response), 0);
-        close(new_socket);
-    }
+    snprintf(response, sizeof(response),
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/plain\r\n"
+        "Content-Length: %ld\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+        "%s",
+        strlen(body), body);
+
+    send(new_socket, response, strlen(response), 0);
+    shutdown(new_socket, SHUT_WR);  // ? Optional but cleaner
+    close(new_socket);
+}
+
     // else: no pending connections (normal)
 }

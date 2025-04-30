@@ -31,6 +31,7 @@ extern "C" {
 #include <algorithm>
 #include <queue>
 #include <unordered_map>
+#include <iomanip>
 
 class Service
 {
@@ -180,18 +181,18 @@ private:
     void printStatistics() const {
         if (_period == INFINITE_PERIOD) return;
 
-        syslog(LOG_INFO, "\n=== Service: %-10s (Period: %u us) Statistics ===\n", _serviceName.c_str(), _period * 1000);
+        double avgJitter = (_jitterCount > 0) ? (_totalJitter / _jitterCount) : 0;
+        double avgExecTime = (_execCount > 0) ? (_totalExecTime / _execCount) : 0;
+        double cpuUtilPercent = (_period > 0) ? (avgExecTime / (_period * 1000.0)) * 100.0 : 0.0;
 
-        if (_jitterCount > 0)
-            syslog(LOG_INFO, " Start Jitter (us): min = %.2f, max = %.2f, avg = %.2f\n",
-                   _minJitter, _maxJitter, _totalJitter / _jitterCount);
-
-        if (_execCount > 0)
-            syslog(LOG_INFO, "  Execution Time (us): min = %.2f, max = %.2f, avg = %.2f\n",
-                   _minExecTime, _maxExecTime, _totalExecTime / _execCount);
-
-        syslog(LOG_INFO, " Total Cumulative Drift (us): %.2f\n", _totalDrift);
-        syslog(LOG_INFO, " Deadline Misses: %zu\n", _deadlineMissCount);
+        syslog(LOG_INFO, "\n=== Service: %-10s | Period: %-6u us ===", _serviceName.c_str(), _period * 1000);
+        syslog(LOG_INFO, "  Jitter (us)        : min = %8.2f | max = %8.2f | avg = %8.2f",
+               _minJitter, _maxJitter, avgJitter);
+        syslog(LOG_INFO, "  Exec Time (us)     : min = %8.2f | max = %8.2f | avg = %8.2f",
+               _minExecTime, _maxExecTime, avgExecTime);
+        syslog(LOG_INFO, "  CPU Utilization    : %6.2f%%", cpuUtilPercent);
+        syslog(LOG_INFO, "  Cumulative Drift   : %8.2f us", _totalDrift);
+        syslog(LOG_INFO, "  Deadline Misses    : %6zu\n", _deadlineMissCount);
     }
 };
 

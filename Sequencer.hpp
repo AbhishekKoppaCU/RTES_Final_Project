@@ -150,7 +150,7 @@ private:
             _totalExecTime += execTime;
             ++_execCount;
 
-            if (_period != INFINITE_PERIOD && execTime > _period) {
+            if (_period != INFINITE_PERIOD && execTime > _period * 1000.0) {
                 ++_deadlineMissCount;
             }
 

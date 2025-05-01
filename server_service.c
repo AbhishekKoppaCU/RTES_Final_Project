@@ -26,14 +26,16 @@ Person database[MAX_PEOPLE] = {
 };
 
 static void handle_get(int client_fd) {
-    char html[2048];
-    char table[1024] = "";
+    char html[4096];
+    char table[2048] = "";
 
     for (int i = 0; i < MAX_PEOPLE; i++) {
         char row[256];
         snprintf(row, sizeof(row),
-            "<tr><td><input name=\"name%d\" value=\"%s\"></td>"
-            "<td><input name=\"interest%d\" value=\"%s\"></td></tr>\n",
+            "<tr>"
+            "<td><input type=\"text\" name=\"name%d\" value=\"%s\"></td>"
+            "<td><input type=\"text\" name=\"interest%d\" value=\"%s\"></td>"
+            "</tr>\n",
             i, database[i].name, i, database[i].interest);
         strcat(table, row);
     }
@@ -42,13 +44,20 @@ static void handle_get(int client_fd) {
         "HTTP/1.1 200 OK\r\n"
         "Content-Type: text/html\r\n"
         "Connection: close\r\n\r\n"
-        "<html><body><h2>Server Database</h2>"
+        "<html><head><title>Server Database</title></head><body>"
+        "<h2>Server Database</h2>"
         "<form method=\"POST\">"
-        "<table border=1><tr><th>Name</th><th>Interest</th></tr>"
-        "%s</table><br><input type=\"submit\"></form></body></html>", table);
+        "<table border=1 cellpadding=5 cellspacing=0>"
+        "<tr><th>Name</th><th>Interest</th></tr>"
+        "%s"
+        "</table><br>"
+        "<input type=\"submit\" value=\"Submit\">"
+        "</form></body></html>",
+        table);
 
     send(client_fd, html, strlen(html), 0);
 }
+
 
 static void handle_post(int client_fd, const char *body) {
     for (int i = 0; i < MAX_PEOPLE; i++) {

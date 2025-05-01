@@ -20,7 +20,14 @@
 #include <rte_ring.h>
 #include <syslog.h>
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#include <errno.h>
+
 #include "packet_logger.h"
+#include "packet_db.h"
 
 
 #define RX_CORE_ID 1
@@ -28,6 +35,10 @@
 #define LOGGER_CORE_ID 3
 
 #define MAX_HISTORY 50
+
+#define CLIENT_PORT 12345  
+#define SERVER_PORT 9999   
+
 
 volatile bool force_quit = false;
 struct rte_mempool *mbuf_pool;
@@ -92,33 +103,88 @@ void rx_service() {
 
 
 
-
-void detect_service() {
-syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
-    while(!force_quit){
-    struct detection_result *result = NULL;
-    if (rte_ring_dequeue(packet_ring, (void **)&result) == 0 && result != NULL) {
-        struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(result->mbuf, struct rte_ether_hdr *);
-        void *l3_hdr = (char *)eth_hdr + sizeof(struct rte_ether_hdr);
-        uint8_t ip_proto = *((uint8_t *)l3_hdr + 9);
-        
-        if (ip_proto == 1) {
-            strncpy(result->threat_status, "THREAT", sizeof(result->threat_status));
-            threat_detected = true;
-        } else {
-            strncpy(result->threat_status, "SAFE", sizeof(result->threat_status));
-        }
-
-        result->detect_tsc = rte_get_tsc_cycles(); // Save detection completed time
-
-        if (rte_ring_enqueue(detected_ring, result) < 0) {
-            rte_pktmbuf_free(result->mbuf);
-            free(result);
-
+const char* lookup_interest(const char* name) {
+    for (int i = 0; i < MAX_PEOPLE; i++) {
+        if (strncmp(name, database[i].name, MAX_NAME_LEN) == 0) {
+            return database[i].interest;
         }
     }
+    return NULL;
 }
-//return NULL;
+
+void detect_service() {
+    syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
+
+    while (!force_quit) {
+        struct detection_result *result = NULL;
+        if (rte_ring_dequeue(packet_ring, (void **)&result) == 0 && result != NULL) {
+            struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(result->mbuf, struct rte_ether_hdr *);
+            void *l3_hdr = (char *)eth_hdr + sizeof(struct rte_ether_hdr);
+            struct rte_ipv4_hdr *ipv4_hdr = (struct rte_ipv4_hdr *)l3_hdr;
+
+            uint8_t ip_proto = ipv4_hdr->next_proto_id;
+
+            if (ip_proto == IPPROTO_ICMP) {
+                strncpy(result->threat_status, "THREAT", sizeof(result->threat_status));
+            } else {
+                strncpy(result->threat_status, "SAFE", sizeof(result->threat_status));
+
+                if (ip_proto == IPPROTO_UDP) {
+                    struct rte_udp_hdr *udp_hdr = (struct rte_udp_hdr *)((char *)ipv4_hdr + sizeof(struct rte_ipv4_hdr));
+                    char *payload = (char *)udp_hdr + sizeof(struct rte_udp_hdr);
+                    int payload_len = rte_be_to_cpu_16(udp_hdr->dgram_len) - sizeof(struct rte_udp_hdr);
+
+                    if (payload_len > 0 && payload_len < 256) {
+                        char type[16] = {0}, resource[64] = {0};
+                        sscanf(payload, "type=%15[^;];resource=%63s", type, resource);
+
+                        if (strcmp(type, "GET") == 0) {
+                            const char *interest = lookup_interest(resource);
+                            if (interest) {
+                                syslog(LOG_INFO, "[IDS] Valid GET: name=%s, interest=%s", resource, interest);
+
+                                int sock = socket(AF_INET, SOCK_DGRAM, 0);
+                                if (sock < 0) {
+                                    syslog(LOG_ERR, "[IDS] Failed to create socket: %s", strerror(errno));
+                                } else {
+                                    struct sockaddr_in client_addr;
+                                    memset(&client_addr, 0, sizeof(client_addr));
+                                    client_addr.sin_family = AF_INET;
+                                    client_addr.sin_port = htons(CLIENT_PORT);
+                                    client_addr.sin_addr.s_addr = ipv4_hdr->src_addr;
+
+                                    char reply[128];
+                                    snprintf(reply, sizeof(reply), "Interest: %s", interest);
+
+                                    char ip_str[INET_ADDRSTRLEN];
+                                    inet_ntop(AF_INET, &client_addr.sin_addr, ip_str, sizeof(ip_str));
+                                    syslog(LOG_INFO, "[IDS] Sending UDP reply to %s:%d — \"%s\"",
+                                           ip_str, CLIENT_PORT, reply);
+
+                                    ssize_t sent = sendto(sock, reply, strlen(reply), 0,
+                                                          (struct sockaddr *)&client_addr, sizeof(client_addr));
+                                    if (sent < 0) {
+                                        syslog(LOG_ERR, "[IDS] sendto() failed: %s", strerror(errno));
+                                    }
+
+                                    close(sock);
+                                }
+                            }
+                        } else if (strcmp(type, "SET") == 0) {
+                            syslog(LOG_INFO, "[IDS] Ignoring SET request for now");
+                        }
+                    }
+                }
+            }
+
+            result->detect_tsc = rte_get_tsc_cycles();
+
+            if (rte_ring_enqueue(detected_ring, result) < 0) {
+                rte_pktmbuf_free(result->mbuf);
+                free(result);
+            }
+        }
+    }
 }
 
 

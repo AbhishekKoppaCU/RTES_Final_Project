@@ -1,4 +1,4 @@
-from scapy.all import Ether, IP, UDP, TCP, sendp, Raw
+from scapy.all import Ether, IP, UDP, TCP, ICMP, Raw, sendp
 import random
 import threading
 import time
@@ -24,18 +24,23 @@ NUM_THREADS = 4
 last_sent_name = None
 lock = threading.Lock()
 
-def generate_noise_packet():
+def generate_random_packet():
+    """Randomly generate a SAFE (TCP/UDP) or THREAT (ICMP) packet."""
     ether = Ether(dst=RPI_MAC_ADDRESS)
     ip = IP(dst=RPI_IP_ADDRESS)
-    if random.choice(["TCP", "UDP"]) == "TCP":
-        payload = ether / ip / TCP(dport=random.randint(1024, 65535))
+
+    # 50% chance to send ICMP (THREAT), else send TCP/UDP (SAFE)
+    if random.choice([True, False]):
+        return ether / ip / ICMP()
     else:
-        payload = ether / ip / UDP(dport=random.randint(1024, 65535))
-    return payload
+        if random.choice(["TCP", "UDP"]) == "TCP":
+            return ether / ip / TCP(dport=random.randint(1024, 65535))
+        else:
+            return ether / ip / UDP(dport=random.randint(1024, 65535))
 
 def send_noise():
     while True:
-        pkt = generate_noise_packet()
+        pkt = generate_random_packet()
         sendp(pkt, iface=INTERFACE, verbose=False)
 
 def send_get_packet():
@@ -71,7 +76,7 @@ def listen_for_response_socket():
             print(f"[ERROR] Socket receive failed: {e}")
 
 def main():
-    print(f"[STARTING] Launching {NUM_THREADS} noise threads, GET sender (2s interval), and listener...")
+    print(f"[STARTING] Launching {NUM_THREADS} mixed noise threads, GET sender (2s interval), and listener...")
 
     for _ in range(NUM_THREADS):
         threading.Thread(target=send_noise, daemon=True).start()

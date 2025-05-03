@@ -9,7 +9,7 @@
 #include <netpacket/packet.h>
 #include <net/if.h>
 #include <time.h>
-
+#include <arpa/inet.h>   
 #define CAPTURE_DURATION_SEC 30
 
 volatile int force_quit = 0;
@@ -67,7 +67,8 @@ int main()
         close(sockfd);
         return -1;
     }
-    fprintf(csv_file, "Timestamp_us,Source MAC,Destination MAC\n");
+    fprintf(csv_file, "Timestamp_us,Source MAC,Destination MAC,ID\n");
+
 
     printf("Non-DPDK (AF_PACKET, eth0) Receiver started...\n");
 
@@ -78,24 +79,44 @@ int main()
 
     while (!force_quit) {
         int n = recvfrom(sockfd, buffer, sizeof(buffer), 0, NULL, NULL);
-        if (n > 0) {
-            struct ethhdr *eth = (struct ethhdr *)buffer;
+if (n > 0) {
+    struct ethhdr *eth = (struct ethhdr *)buffer;
 
-            char src_mac[18], dst_mac[18];
-            snprintf(src_mac, sizeof(src_mac),
-                     "%02x:%02x:%02x:%02x:%02x:%02x",
-                     eth->h_source[0], eth->h_source[1], eth->h_source[2],
-                     eth->h_source[3], eth->h_source[4], eth->h_source[5]);
+    char src_mac[18], dst_mac[18];
+    snprintf(src_mac, sizeof(src_mac),
+             "%02x:%02x:%02x:%02x:%02x:%02x",
+             eth->h_source[0], eth->h_source[1], eth->h_source[2],
+             eth->h_source[3], eth->h_source[4], eth->h_source[5]);
 
-            snprintf(dst_mac, sizeof(dst_mac),
-                     "%02x:%02x:%02x:%02x:%02x:%02x",
-                     eth->h_dest[0], eth->h_dest[1], eth->h_dest[2],
-                     eth->h_dest[3], eth->h_dest[4], eth->h_dest[5]);
+    snprintf(dst_mac, sizeof(dst_mac),
+             "%02x:%02x:%02x:%02x:%02x:%02x",
+             eth->h_dest[0], eth->h_dest[1], eth->h_dest[2],
+             eth->h_dest[3], eth->h_dest[4], eth->h_dest[5]);
 
-            uint64_t timestamp = get_timestamp_us();
-            fprintf(csv_file, "%lu,%s,%s\n", timestamp, src_mac, dst_mac);
-            fflush(csv_file);
+    // Default to "NA" if ID is not found
+    char id_val[16] = "NA";
+
+    // Skip Ethernet header (usually 14 bytes)
+    char *payload = buffer + sizeof(struct ethhdr);
+    int payload_len = n - sizeof(struct ethhdr);
+
+    if (payload_len > 0 && payload_len < 1500) {
+        char payload_copy[1501] = {0};
+        memcpy(payload_copy, payload, payload_len);
+        payload_copy[payload_len] = '\0';
+
+        // Search for ID: pattern
+        char *id_ptr = strstr(payload_copy, "ID:");
+        if (id_ptr) {
+            sscanf(id_ptr, "ID:%15s", id_val);
         }
+    }
+
+    uint64_t timestamp = get_timestamp_us();
+    fprintf(csv_file, "%lu,%s,%s,%s\n", timestamp, src_mac, dst_mac, id_val);
+    fflush(csv_file);
+}
+
         // Check timeout and stop after 30 sec
         if (time(NULL) - start_time >= CAPTURE_DURATION_SEC) {
             force_quit = 1;

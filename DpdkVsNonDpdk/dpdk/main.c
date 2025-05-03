@@ -28,6 +28,7 @@ static void signal_handler(int signum)
         printf("\nSignal %d received, exiting...\n", signum);
     }
 }
+/*
 
 static void log_packet(struct rte_mbuf *mbuf)
 {
@@ -42,6 +43,39 @@ static void log_packet(struct rte_mbuf *mbuf)
     uint64_t timestamp_us = ts.tv_sec * 1000000ULL + ts.tv_nsec / 1000;
 
     fprintf(csv_file, "%lu,%s,%s\n", timestamp_us, src_mac, dst_mac);
+    fflush(csv_file);
+}*/
+static void log_packet(struct rte_mbuf *mbuf)
+{
+    struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
+    char src_mac[32], dst_mac[32];
+    char id_str[16] = "NA";  // Default if ID not found
+
+    rte_ether_format_addr(src_mac, sizeof(src_mac), &eth_hdr->src_addr);
+    rte_ether_format_addr(dst_mac, sizeof(dst_mac), &eth_hdr->dst_addr);
+
+    // Calculate timestamp
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    uint64_t timestamp_us = ts.tv_sec * 1000000ULL + ts.tv_nsec / 1000;
+
+    // Attempt to extract "ID:<number>" from payload
+    char *payload_start = (char *)eth_hdr + sizeof(struct rte_ether_hdr);
+    uint16_t payload_len = rte_pktmbuf_pkt_len(mbuf) - sizeof(struct rte_ether_hdr);
+    if (payload_len > 0 && payload_len < 1500) {  // Sanity check
+        char payload_buf[1501] = {0};
+        rte_memcpy(payload_buf, payload_start, payload_len);
+        payload_buf[payload_len] = '\0';
+
+        // Look for "ID:"
+        char *id_pos = strstr(payload_buf, "ID:");
+        if (id_pos != NULL) {
+            sscanf(id_pos, "ID:%15s", id_str);
+        }
+    }
+
+    // Write to CSV with ID
+    fprintf(csv_file, "%lu,%s,%s,%s\n", timestamp_us, src_mac, dst_mac, id_str);
     fflush(csv_file);
 }
 
@@ -81,7 +115,8 @@ int main(int argc, char *argv[])
     csv_file = fopen("dpdk_packet_log.csv", "w");
     if (!csv_file)
         rte_exit(EXIT_FAILURE, "Failed to open CSV file\n");
-    fprintf(csv_file, "Timestamp_us,Source MAC,Destination MAC\n");
+fprintf(csv_file, "Timestamp_us,Source MAC,Destination MAC,ID\n");
+
 
     start_time = time(NULL);
 

@@ -13,7 +13,8 @@
 #include <syslog.h>
 #include <sched.h>
 #include <stdbool.h>
-
+#include <unistd.h>
+#include <errno.h>
 Person database[MAX_PEOPLE] = {
     {"Parth", "Dancing"},
     {"Jainil", "Cycling"},
@@ -84,8 +85,10 @@ static void handle_post(int client_fd, const char *body) {
 void server_service() {
     static int server_fd = -1;
     static bool initialized = false;
-
+    //syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
     if (!initialized) {
+        printf("hello/n/r");
+        printf("hello/n/r");
         syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
         struct sockaddr_in address;
         int opt = 1;

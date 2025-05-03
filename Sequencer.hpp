@@ -70,14 +70,18 @@ public:
         sem_post(&_sem);
     }
 
-    void release(){
-        struct timespec releaseTime;
-        clock_gettime(CLOCK_MONOTONIC, &releaseTime);
+    void release(const struct timespec& releaseTime) {
         {
             std::lock_guard<std::mutex> lock(_releaseMutex);
             _releaseTimes.push(releaseTime);
         }
         sem_post(&_sem);
+    }
+
+    void release() {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        release(now);
     }
 
     ~Service()
@@ -90,7 +94,7 @@ public:
 
     sem_t& getSemaphore() { return _sem; }
     uint32_t getPeriod() const { return _period; }
-    
+
 private:
     std::function<void(void)> _doService;
     std::string _serviceName;
@@ -112,6 +116,10 @@ private:
     size_t _execCount = 0;
     double _totalDrift = 0;
     size_t _deadlineMissCount = 0;
+
+    struct timespec _baseReleaseTime {};
+    bool _hasBaseRelease = false;
+    size_t _tickCount = 0;
 
     static inline double diffTimeUs(const struct timespec &start, const struct timespec &end) {
         return (end.tv_sec - start.tv_sec) * 1e6 + (end.tv_nsec - start.tv_nsec) / 1e3;
@@ -139,8 +147,29 @@ private:
             _minJitter = std::min(_minJitter, jitter);
             _maxJitter = std::max(_maxJitter, jitter);
             _totalJitter += jitter;
-            _totalDrift += jitter;
             ++_jitterCount;
+
+            if (_period != INFINITE_PERIOD) {
+                if (!_hasBaseRelease) {
+                    _baseReleaseTime = releaseTime;
+                    _hasBaseRelease = true;
+                }
+
+                ++_tickCount;
+
+                uint64_t expected_us = static_cast<uint64_t>(_tickCount) * _period;
+                struct timespec expected;
+                expected.tv_sec = _baseReleaseTime.tv_sec + expected_us / 1000;
+                expected.tv_nsec = _baseReleaseTime.tv_nsec + (expected_us % 1000) * 1'000'000;
+
+                if (expected.tv_nsec >= 1'000'000'000) {
+                    expected.tv_sec += 1;
+                    expected.tv_nsec -= 1'000'000'000;
+                }
+
+                double drift = diffTimeUs(expected, startTime);
+                _totalDrift = drift;
+            }
 
             _doService();
 
@@ -181,7 +210,6 @@ private:
     void printStatistics() const {
         if (_period == INFINITE_PERIOD) return;
 
-        //double avgJitter = (_jitterCount > 0) ? (_totalJitter / _jitterCount) : 0;
         double avgJitter = _maxJitter - _minJitter;
         double avgExecTime = (_execCount > 0) ? (_totalExecTime / _execCount) : 0;
         double cpuUtilPercent = (_period > 0) ? (avgExecTime / (_period * 1000.0)) * 100.0 : 0.0;
@@ -207,45 +235,66 @@ public:
     }
 
     void startServices()
-{
-    _runningTimer.store(true);
-    _tickThread = std::jthread([](Sequencer* self) {
-        struct timespec next_wakeup;
-        clock_gettime(CLOCK_MONOTONIC, &next_wakeup);
+    {
+        _runningTimer.store(true);
+        _tickThread = std::jthread([](Sequencer* self) {
+            static struct timespec base_time;
+            static bool base_set = false;
 
-        int tick_ms = 0;
-        static std::unordered_map<Service*, bool> started_map;
+            int tick_ms = 0;
+            static std::unordered_map<Service*, bool> started_map;
 
-        while (self->_runningTimer.load()) {
-            // Increment the next wakeup time by 1 ms
-            next_wakeup.tv_nsec += 1'000'000; // 1 ms = 1,000,000 ns
-            if (next_wakeup.tv_nsec >= 1'000'000'000) {
-                next_wakeup.tv_sec += 1;
-                next_wakeup.tv_nsec -= 1'000'000'000;
-            }
-
-            // Sleep until the next absolute time
-            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next_wakeup, NULL);
-
-            ++tick_ms;
-
-            for (auto& service : self->_services) {
-                Service* service_ptr = service.get();
-                if (service_ptr->getPeriod() == INFINITE_PERIOD) {
-                    if (!started_map[service_ptr]) {
-                        sem_post(&service_ptr->getSemaphore());
-                        started_map[service_ptr] = true;
-                    }
-                } else if (tick_ms % service_ptr->getPeriod() == 0) {
-                    sem_post(&service_ptr->getSemaphore());
+            while (self->_runningTimer.load()) {
+                if (!base_set) {
+                    clock_gettime(CLOCK_MONOTONIC, &base_time);
+                    base_set = true;
                 }
+
+                struct timespec expected = base_time;
+                expected.tv_nsec += tick_ms * 1'000'000;
+                expected.tv_sec += expected.tv_nsec / 1'000'000'000;
+                expected.tv_nsec %= 1'000'000'000;
+
+                clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &expected, NULL);
+
+                struct timespec now;
+                clock_gettime(CLOCK_MONOTONIC, &now);
+
+                double drift_us = (now.tv_sec - expected.tv_sec) * 1e6 + (now.tv_nsec - expected.tv_nsec) / 1e3;
+
+                if (drift_us > 0) {
+                    base_time.tv_nsec += static_cast<long>(drift_us * 1e3);
+                } else if (drift_us < 0) {
+                    base_time.tv_nsec += static_cast<long>(drift_us * 1e3);
+                }
+
+                if (base_time.tv_nsec >= 1'000'000'000) {
+                    base_time.tv_sec += 1;
+                    base_time.tv_nsec -= 1'000'000'000;
+                } else if (base_time.tv_nsec < 0) {
+                    base_time.tv_sec -= 1;
+                    base_time.tv_nsec += 1'000'000'000;
+                }
+
+                struct timespec release_time = now;
+                for (auto& service : self->_services) {
+                    Service* service_ptr = service.get();
+
+                    if (service_ptr->getPeriod() == INFINITE_PERIOD) {
+                        if (!started_map[service_ptr]) {
+                            service_ptr->release(release_time);
+                            started_map[service_ptr] = true;
+                        }
+                    } else if (tick_ms % service_ptr->getPeriod() == 0) {
+                        service_ptr->release(release_time);
+                    }
+                }
+
+                ++tick_ms;
+                if (tick_ms >= 1000) tick_ms = 0;
             }
-
-            if (tick_ms >= 1000) tick_ms = 0;
-        }
-    }, this);
-}
-
+        }, this);
+    }
 
     void stopServices()
     {
@@ -260,26 +309,4 @@ private:
     std::jthread _tickThread;
     std::atomic<bool> _runningTimer {false};
     std::vector<std::unique_ptr<Service>> _services;
-    static inline Sequencer* _instance = nullptr;
-    timer_t _timerId;
-
-    static void _timerHandler(int sig, siginfo_t* si, void* uc)
-    {
-        (void)sig; (void)si; (void)uc;
-        static int tick = 0;
-        tick += 1;
-        if (!_instance) return;
-        for (auto& service : _instance->_services) {
-            if (service->getPeriod() == INFINITE_PERIOD) {
-                static bool started = false;
-                if (!started) {
-                    sem_post(&service->getSemaphore());
-                    started = true;
-                }
-            } else if (tick % service->getPeriod() == 0) {
-                sem_post(&service->getSemaphore());
-            }
-        }
-        if (tick >= 100) tick = 0;
-    }
 };

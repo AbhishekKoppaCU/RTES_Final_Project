@@ -14,13 +14,17 @@ extern "C" {
     #include "server_service.h"
 
 }
+#include <cstdlib> // For atexit
+
+
 
 pthread_t rx_thread, detect_thread, log_thread, led_thread;
 
 int main(int argc, char *argv[]) {
     openlog("PthreadService", LOG_PID | LOG_CONS | LOG_PERROR, LOG_USER);
-    syslog(LOG_INFO, "Starting DPDK packet sniffer with sequencer-controlled services...");
 
+    syslog(LOG_INFO, "Starting DPDK packet sniffer with sequencer-controlled services...");
+    
     // Initialize DPDK
     if (rte_eal_init(argc, argv) < 0) {
         syslog(LOG_ERR, "Failed to initialize DPDK EAL");
@@ -76,7 +80,7 @@ int main(int argc, char *argv[]) {
     // Add services directly (real functional services)
     sequencer.addService(rx_service,     "RX",     RX_CORE_ID,        max_priority, INFINITE_PERIOD);   // RX service: every 5 ms
     sequencer.addService(detect_service, "DETECT", DETECTION_CORE_ID, max_priority, INFINITE_PERIOD);   // Detection service: every 5 ms
-    sequencer.addService(server_service,    "SERVER",    LOGGER_CORE_ID,    max_priority-1, 1);   // LED service: every 5 ms
+    sequencer.addService(server_service,    "SERVER",    LOGGER_CORE_ID,    max_priority-1, 10);   // LED service: every 5 ms
     sequencer.addService(logger_service, "LOGGER", LOGGER_CORE_ID,    max_priority, 2);  // Logger service: every 10 ms
 
 

@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include "packet_logger.h"
 #include "packet_db.h"
 
@@ -30,7 +32,7 @@ static void handle_get(int client_fd) {
     char table[2048] = "";
 
     for (int i = 0; i < MAX_PEOPLE; i++) {
-        char row[256];
+        char row[1024];
         snprintf(row, sizeof(row),
             "<tr>"
             "<td><input type=\"text\" name=\"name%d\" value=\"%s\"></td>"
@@ -84,6 +86,7 @@ void server_service() {
     static bool initialized = false;
 
     if (!initialized) {
+        syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
         struct sockaddr_in address;
         int opt = 1;
 

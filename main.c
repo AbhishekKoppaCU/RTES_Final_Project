@@ -30,6 +30,7 @@
 #include "packet_db.h"
 
 
+
 #define RX_CORE_ID 1
 #define DETECTION_CORE_ID 2
 #define LOGGER_CORE_ID 3
@@ -67,7 +68,7 @@ struct log_entry {
 };
 
 void signal_handler(int signum) {
-    if (signum == SIGINT || signum == SIGTERM) {
+    if (signum == SIGINT || signum == SIGTERM || signum == SIGSEGV || signum == SIGABRT) {
         force_quit = true;
         syslog(LOG_INFO,"\nSignal %d received, exiting...\n", signum);
         endwin();
@@ -295,6 +296,9 @@ void logger_service() {
         }
         refresh();
         last_refresh_time = now;
+    }
+    if (force_quit) {
+    endwin(); // Properly reset terminal
     }
 }
 

@@ -1,6 +1,6 @@
 import csv
 import os
-
+import matplotlib.pyplot as plt
 def analyze_csv(filename):
     timestamps = []
 
@@ -95,6 +95,17 @@ def main():
         print(f"Average Delay        : {avg_delay:.2f} µs")
         print(f"Minimum Delay        : {min_delay} µs")
         print(f"Maximum Delay        : {max_delay} µs")
+            # Plot histogram of delays
+
+        plt.figure(figsize=(10, 6))
+        plt.hist(delays, bins=100, color='steelblue', edgecolor='black')
+        plt.title("Histogram of Packet Arrival Delay (Non-DPDK - DPDK)")
+        plt.xlabel("Delay (µs)")
+        plt.ylabel("Frequency")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+
     else:
         print("⚠️ No common packet IDs found to compare delays.")
 

@@ -4,14 +4,25 @@ import threading
 import time
 import socket
 
-# Raspberry Pi Ethernet MAC Address
-RPI_MAC_ADDRESS = "d8:3a:dd:9c:d7:26"
+# Koppa realted settings
+# # Raspberry Pi Ethernet MAC Address
+# RPI_MAC_ADDRESS = "d8:3a:dd:9c:d7:26"
 
-# Laptop Ethernet Interface Name (adjust as needed)
-INTERFACE = "Ethernet 5"
+# # Laptop Ethernet Interface Name (adjust as needed)
+# INTERFACE = "Ethernet 5"
+
+# # Destination IP (RPi eth0)
+# RPI_IP_ADDRESS = "192.168.1.100"
+
+RPI_MAC_ADDRESS = "d8:3a:dd:9c:d8:7e"
+
+# Laptop Ethernet Interface Name
+INTERFACE = "Ethernet 2"
 
 # Destination IP (RPi eth0)
-RPI_IP_ADDRESS = "192.168.1.100"
+RPI_IP_ADDRESS = "192.168.1.2"
+
+
 RPI_UDP_PORT = 9999
 SRC_PORT = 12345  # fixed source port so RPi can reply
 

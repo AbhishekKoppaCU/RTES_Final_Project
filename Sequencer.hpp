@@ -181,7 +181,8 @@ private:
     void printStatistics() const {
         if (_period == INFINITE_PERIOD) return;
 
-        double avgJitter = (_jitterCount > 0) ? (_totalJitter / _jitterCount) : 0;
+        //double avgJitter = (_jitterCount > 0) ? (_totalJitter / _jitterCount) : 0;
+        double avgJitter = _maxJitter - _minJitter;
         double avgExecTime = (_execCount > 0) ? (_totalExecTime / _execCount) : 0;
         double cpuUtilPercent = (_period > 0) ? (avgExecTime / (_period * 1000.0)) * 100.0 : 0.0;
 
@@ -206,29 +207,45 @@ public:
     }
 
     void startServices()
-    {
-        _runningTimer.store(true);
-        _tickThread = std::jthread([](Sequencer* self) {
-            int tick_ms = 0;
-            static std::unordered_map<Service*, bool> started_map;
-            while (self->_runningTimer.load()) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                ++tick_ms;
-                for (auto& service : self->_services) {
-                    Service* service_ptr = service.get();
-                    if (service_ptr->getPeriod() == INFINITE_PERIOD) {
-                        if (!started_map[service_ptr]) {
-                            sem_post(&service_ptr->getSemaphore());
-                            started_map[service_ptr] = true;
-                        }
-                    } else if (tick_ms % service_ptr->getPeriod() == 0) {
-                        sem_post(&service_ptr->getSemaphore());
-                    }
-                }
-                if (tick_ms >= 1000) tick_ms = 0;
+{
+    _runningTimer.store(true);
+    _tickThread = std::jthread([](Sequencer* self) {
+        struct timespec next_wakeup;
+        clock_gettime(CLOCK_MONOTONIC, &next_wakeup);
+
+        int tick_ms = 0;
+        static std::unordered_map<Service*, bool> started_map;
+
+        while (self->_runningTimer.load()) {
+            // Increment the next wakeup time by 1 ms
+            next_wakeup.tv_nsec += 1'000'000; // 1 ms = 1,000,000 ns
+            if (next_wakeup.tv_nsec >= 1'000'000'000) {
+                next_wakeup.tv_sec += 1;
+                next_wakeup.tv_nsec -= 1'000'000'000;
             }
-        }, this);
-    }
+
+            // Sleep until the next absolute time
+            clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next_wakeup, NULL);
+
+            ++tick_ms;
+
+            for (auto& service : self->_services) {
+                Service* service_ptr = service.get();
+                if (service_ptr->getPeriod() == INFINITE_PERIOD) {
+                    if (!started_map[service_ptr]) {
+                        sem_post(&service_ptr->getSemaphore());
+                        started_map[service_ptr] = true;
+                    }
+                } else if (tick_ms % service_ptr->getPeriod() == 0) {
+                    sem_post(&service_ptr->getSemaphore());
+                }
+            }
+
+            if (tick_ms >= 1000) tick_ms = 0;
+        }
+    }, this);
+}
+
 
     void stopServices()
     {

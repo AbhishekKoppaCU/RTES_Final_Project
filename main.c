@@ -142,7 +142,7 @@ void detect_service() {
                         if (strcmp(type, "GET") == 0) {
                             const char *interest = lookup_interest(resource);
                             if (interest) {
-                                syslog(LOG_INFO, "[IDS] Valid GET: name=%s, interest=%s", resource, interest);
+//                                syslog(LOG_INFO, "[IDS] Valid GET: name=%s, interest=%s", resource, interest);
 
                                 int sock = socket(AF_INET, SOCK_DGRAM, 0);
                                 if (sock < 0) {
@@ -159,8 +159,8 @@ void detect_service() {
 
                                     char ip_str[INET_ADDRSTRLEN];
                                     inet_ntop(AF_INET, &client_addr.sin_addr, ip_str, sizeof(ip_str));
-                                    syslog(LOG_INFO, "[IDS] Sending UDP reply to %s:%d — \"%s\"",
-                                           ip_str, CLIENT_PORT, reply);
+//                                    syslog(LOG_INFO, "[IDS] Sending UDP reply to %s:%d — \"%s\"",
+//                                           ip_str, CLIENT_PORT, reply);
 
                                     ssize_t sent = sendto(sock, reply, strlen(reply), 0,
                                                           (struct sockaddr *)&client_addr, sizeof(client_addr));
@@ -172,7 +172,7 @@ void detect_service() {
                                 }
                             }
                         } else if (strcmp(type, "SET") == 0) {
-                            syslog(LOG_INFO, "[IDS] Ignoring SET request for now");
+  //                          syslog(LOG_INFO, "[IDS] Ignoring SET request for now");
                         }
                     }
                 }

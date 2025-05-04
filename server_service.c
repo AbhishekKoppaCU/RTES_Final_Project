@@ -87,8 +87,8 @@ void server_service() {
     static bool initialized = false;
     //syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
     if (!initialized) {
-        printf("hello/n/r");
-        printf("hello/n/r");
+//        printf("hello/n/r");
+//        printf("hello/n/r");
         syslog(LOG_INFO, "[%s] Thread running on core %d", __func__, sched_getcpu());
         struct sockaddr_in address;
         int opt = 1;

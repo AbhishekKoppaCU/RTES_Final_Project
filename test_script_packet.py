@@ -74,7 +74,7 @@ def send_get_packet():
 def listen_for_response_socket():
     global last_sent_name
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(("192.168.1.99", SRC_PORT))
+    sock.bind(("192.168.1.4", SRC_PORT))
 
     print("[LISTENER] Waiting for UDP replies on port 12345...")
     while True:

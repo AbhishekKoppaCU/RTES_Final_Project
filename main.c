@@ -201,7 +201,6 @@ FILE *init_csv_file() {
     return csv_file;
 }
 
-
 void logger_service() {
     static bool initialized = false;
     static FILE *csv_file = NULL;
@@ -277,28 +276,23 @@ void logger_service() {
     uint64_t hz = rte_get_timer_hz();
     if ((now - last_refresh_time) > (hz / 1)) { // 10ms
         clear();
-        mvprintw(0, 0, "Timestamp              SourceMAC           DestinationMAC      Threat    DetectDelay  LogDelay");
+        mvprintw(0, 0, "Timestamp              SourceMAC           DestinationMAC      Threat");
         for (int i = 0; i < history_count; i++) {
             if (strcmp(history[i].threat_status, "THREAT") == 0) {
                 attron(COLOR_PAIR(1));
             } else {
                 attron(COLOR_PAIR(2));
             }
-            mvprintw(i + 1, 0, "%s  %s -> %s     %s         %ldms        %ldms",
+            mvprintw(i + 1, 0, "%s  %s -> %s     %s",
                      history[i].timestamp,
                      history[i].src_mac,
                      history[i].dst_mac,
-                     history[i].threat_status,
-                     history[i].detect_delay_ms,
-                     history[i].log_delay_ms);
+                     history[i].threat_status);
             attroff(COLOR_PAIR(1));
             attroff(COLOR_PAIR(2));
         }
         refresh();
         last_refresh_time = now;
-    }
-    if (force_quit) {
-    endwin(); // Properly reset terminal
     }
 }
 
